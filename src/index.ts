@@ -7,16 +7,22 @@
  * capabilities to any MCP-compatible AI agent (Claude Code, Cursor, Windsurf,
  * Workday agents, Eightfold AI Interviewer, etc.).
  *
- * Active tools (9):
- *   1. trustmodel_evaluate         — POST /sdk/v1/evaluate/
- *   2. trustmodel_score            — GET  /sdk/v1/evaluations/{int}/
- *   3. trustmodel_credits          — GET  /sdk/v1/credits/
- *   4. trustmodel_upload_trace     — POST /sdk/v1/agentic/upload-url/ + PUT signed URL (one-shot)
- *   5. trustmodel_evaluate_agent   — POST /sdk/v1/agentic/evaluate/
- *   6. trustmodel_score_agent      — GET  /sdk/v1/agentic/evaluations/{int}/
- *   7. trustmodel_trace_start      — open a streaming trace session (local state)
- *   8. trustmodel_trace_step       — append a step to an active trace
- *   9. trustmodel_trace_finalize   — serialize + upload + auto-create evaluation run
+ * Active tools (12):
+ *   1.  trustmodel_evaluate            — POST /sdk/v1/evaluate/
+ *   2.  trustmodel_score               — GET  /sdk/v1/evaluations/{int}/
+ *   3.  trustmodel_credits             — GET  /sdk/v1/credits/
+ *   4.  trustmodel_upload_trace        — POST /sdk/v1/agentic/upload-url/ + PUT signed URL (one-shot)
+ *   5.  trustmodel_evaluate_agent      — POST /sdk/v1/agentic/evaluate/
+ *   6.  trustmodel_score_agent         — GET  /sdk/v1/agentic/evaluations/{int}/
+ *   7.  trustmodel_trace_start         — open a streaming trace session (local state)
+ *   8.  trustmodel_trace_step          — append a step to an active trace
+ *   9.  trustmodel_trace_finalize      — serialize + upload + auto-create evaluation run
+ *  10.  trustmodel_redteam_evaluate    — POST /api/v1/red-team/evaluations/    (TRUS-726)
+ *  11.  trustmodel_redteam_results     — GET  /api/v1/red-team/evaluations/{int}/
+ *  12.  trustmodel_redteam_list_probes — GET  /api/v1/red-team/probes/
+ *  13.  trustmodel_shadowai_scan       — POST /api/v1/shadow-ai/scans/          (TRUS-756)
+ *  14.  trustmodel_shadowai_results    — GET  /api/v1/shadow-ai/scans/{int}/
+ *  15.  trustmodel_shadowai_events     — GET  /api/v1/shadow-ai/scans/{int}/events/
  *
  * Inactive (kept in src/ but not registered — backend endpoints missing):
  *   - trustmodel_evaluate_cots
@@ -89,6 +95,48 @@ import {
   traceFinalizeToolSchema,
   handleTraceFinalize,
 } from "./tools/trace-finalize.js";
+
+import {
+  redteamEvaluateToolName,
+  redteamEvaluateToolDescription,
+  redteamEvaluateToolSchema,
+  handleRedteamEvaluate,
+} from "./tools/redteam-evaluate.js";
+
+import {
+  redteamResultsToolName,
+  redteamResultsToolDescription,
+  redteamResultsToolSchema,
+  handleRedteamResults,
+} from "./tools/redteam-results.js";
+
+import {
+  redteamProbesToolName,
+  redteamProbesToolDescription,
+  redteamProbesToolSchema,
+  handleRedteamProbes,
+} from "./tools/redteam-probes.js";
+
+import {
+  shadowaiScanToolName,
+  shadowaiScanToolDescription,
+  shadowaiScanToolSchema,
+  handleShadowaiScan,
+} from "./tools/shadowai-scan.js";
+
+import {
+  shadowaiResultsToolName,
+  shadowaiResultsToolDescription,
+  shadowaiResultsToolSchema,
+  handleShadowaiResults,
+} from "./tools/shadowai-results.js";
+
+import {
+  shadowaiEventsToolName,
+  shadowaiEventsToolDescription,
+  shadowaiEventsToolSchema,
+  handleShadowaiEvents,
+} from "./tools/shadowai-events.js";
 
 import { startEvictionTimer } from "./trace-store.js";
 
@@ -264,6 +312,114 @@ server.tool(
   async (args) => {
     try {
       const result = await handleTraceFinalize(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 10 — trustmodel_redteam_evaluate (TRUS-726)
+server.tool(
+  redteamEvaluateToolName,
+  redteamEvaluateToolDescription,
+  redteamEvaluateToolSchema,
+  async (args) => {
+    try {
+      const result = await handleRedteamEvaluate(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 11 — trustmodel_redteam_results (TRUS-726)
+server.tool(
+  redteamResultsToolName,
+  redteamResultsToolDescription,
+  redteamResultsToolSchema,
+  async (args) => {
+    try {
+      const result = await handleRedteamResults(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 12 — trustmodel_redteam_list_probes (TRUS-726)
+server.tool(
+  redteamProbesToolName,
+  redteamProbesToolDescription,
+  redteamProbesToolSchema,
+  async (args) => {
+    try {
+      const result = await handleRedteamProbes(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 13 — trustmodel_shadowai_scan (TRUS-756)
+server.tool(
+  shadowaiScanToolName,
+  shadowaiScanToolDescription,
+  shadowaiScanToolSchema,
+  async (args) => {
+    try {
+      const result = await handleShadowaiScan(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 14 — trustmodel_shadowai_results (TRUS-756)
+server.tool(
+  shadowaiResultsToolName,
+  shadowaiResultsToolDescription,
+  shadowaiResultsToolSchema,
+  async (args) => {
+    try {
+      const result = await handleShadowaiResults(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 15 — trustmodel_shadowai_events (TRUS-756)
+server.tool(
+  shadowaiEventsToolName,
+  shadowaiEventsToolDescription,
+  shadowaiEventsToolSchema,
+  async (args) => {
+    try {
+      const result = await handleShadowaiEvents(args);
       return { content: [{ type: "text", text: formatResult(result) }] };
     } catch (err) {
       return {
