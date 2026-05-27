@@ -7,7 +7,7 @@
  * capabilities to any MCP-compatible AI agent (Claude Code, Cursor, Windsurf,
  * Workday agents, Eightfold AI Interviewer, etc.).
  *
- * Active tools (10):
+ * Active tools (11):
  *   1. trustmodel_evaluate                       — POST /sdk/v1/evaluate/
  *   2. trustmodel_score                          — GET  /sdk/v1/evaluations/{int}/
  *   3. trustmodel_credits                        — GET  /sdk/v1/credits/
@@ -18,6 +18,7 @@
  *   8. trustmodel_trace_step                     — append a step to an active trace
  *   9. trustmodel_trace_finalize                 — serialize + upload + auto-create evaluation run
  *  10. trustmodel_shadow_discovery_scan_paths    — AGT ShadowDiscovery over local FS paths (TRUS-848)
+ *  11. trustmodel_shadow_discovery_fingerprint_keys — probe OpenAI/Anthropic API keys (TRUS-1012, 848d)
  *
  * Inactive (kept in src/ but not registered — backend endpoints missing):
  *   - trustmodel_evaluate_cots
@@ -97,6 +98,13 @@ import {
   shadowDiscoveryScanPathsToolSchema,
   handleShadowDiscoveryScanPaths,
 } from "./tools/shadow-discovery-scan-paths.js";
+
+import {
+  shadowDiscoveryFingerprintKeysToolName,
+  shadowDiscoveryFingerprintKeysToolDescription,
+  shadowDiscoveryFingerprintKeysToolSchema,
+  handleShadowDiscoveryFingerprintKeys,
+} from "./tools/shadow-discovery-fingerprint-keys.js";
 
 import { startEvictionTimer } from "./trace-store.js";
 
@@ -290,6 +298,23 @@ server.tool(
   async (args) => {
     try {
       const result = await handleShadowDiscoveryScanPaths(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  shadowDiscoveryFingerprintKeysToolName,
+  shadowDiscoveryFingerprintKeysToolDescription,
+  shadowDiscoveryFingerprintKeysToolSchema,
+  async (args) => {
+    try {
+      const result = await handleShadowDiscoveryFingerprintKeys(args);
       return { content: [{ type: "text", text: formatResult(result) }] };
     } catch (err) {
       return {
