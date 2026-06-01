@@ -4,6 +4,17 @@ A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that l
 
 Works with Claude Code, Cursor, Windsurf, Claude Desktop, and any other MCP-compatible client.
 
+[![npm](https://img.shields.io/npm/v/@trustmodel/mcp-server?color=3b5bfd&label=npm)](https://www.npmjs.com/package/@trustmodel/mcp-server)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install-blue?logo=visualstudiocode)](https://insiders.vscode.dev/redirect/mcp/install?name=trustmodel&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40trustmodel%2Fmcp-server%22%5D%7D)
+[![Add to Cursor](https://img.shields.io/badge/Cursor-Add_MCP-000)](https://cursor.com/install-mcp?name=trustmodel&config=eyJjb21tYW5kIjoibnB4IC15IEB0cnVzdG1vZGVsL21jcC1zZXJ2ZXIifQ%3D%3D)
+
+## One-click install
+
+- **VS Code / Cursor** — click the badges above (they deep-link the `npx -y @trustmodel/mcp-server` config).
+- **Claude Desktop** — download `trustmodel.mcpb` from [Releases](https://github.com/karlmehta/trustmodel-mcp/releases) and drag it into Settings → Extensions (no JSON editing). Build it locally with `./scripts/build-mcpb.sh`.
+- **Aggregators** — also listed on [Smithery](https://smithery.ai/server/@trustmodel/mcp-server) and [Glama](https://glama.ai/mcp/servers) (`smithery.yaml` / `glama.json` in this repo).
+
 ## Quick Start
 
 ### 1. Get an API key

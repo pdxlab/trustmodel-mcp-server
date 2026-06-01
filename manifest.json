@@ -1,0 +1,56 @@
+{
+  "manifest_version": "0.2",
+  "name": "trustmodel",
+  "display_name": "TrustModel",
+  "version": "0.2.0",
+  "description": "Trust evaluation, red-team, and governance for AI agents via the Model Context Protocol.",
+  "long_description": "Score AI output across 10 trust dimensions (local, no key), gate it against policy packs (EU AI Act, NIST AI RMF, NYC LL144, OWASP LLM), capture and evaluate agentic traces, and run calibrated cloud scoring with a free TrustModel API key.",
+  "author": {
+    "name": "Karl Mehta",
+    "url": "https://trustmodel.ai"
+  },
+  "homepage": "https://trustmodel.ai",
+  "documentation": "https://github.com/karlmehta/trustmodel-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/karlmehta/trustmodel-mcp"
+  },
+  "license": "MIT",
+  "keywords": ["mcp", "ai-safety", "eval", "red-team", "governance", "trust-score"],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "TRUSTMODEL_API_KEY": "${user_config.api_key}",
+        "TRUSTMODEL_PROFILE": "${user_config.profile}"
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "TrustModel API key",
+      "description": "Free key (5 credits / $500) for calibrated cloud scoring. Optional — local eval and govern work without it. Get one at https://app.trustmodel.ai",
+      "sensitive": true,
+      "required": false
+    },
+    "profile": {
+      "type": "string",
+      "title": "Tool profile",
+      "description": "'default' = 6 daily-driver tools; 'security' = all 20 (red team, shadow AI, MCP scan, cloud batch).",
+      "default": "default",
+      "required": false
+    }
+  },
+  "tools": [
+    { "name": "trustmodel_evaluate_local", "description": "Local 10-dimension TrustScore (no key)." },
+    { "name": "trustmodel_govern", "description": "Policy-pack allow/block gate (no key)." },
+    { "name": "trustmodel_score", "description": "Fetch a cloud evaluation's scores." },
+    { "name": "trustmodel_trace_start", "description": "Open an agentic trace session." },
+    { "name": "trustmodel_trace_step", "description": "Record a trace step." },
+    { "name": "trustmodel_trace_finalize", "description": "Finalize + evaluate an agent trace." }
+  ]
+}
