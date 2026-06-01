@@ -1,0 +1,28 @@
+# Smithery listing for the TrustModel MCP server.
+# https://smithery.ai/docs
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      apiKey:
+        type: string
+        title: TrustModel API key
+        description: >-
+          Free key (5 credits / $500) for calibrated cloud scoring. Optional —
+          local eval and govern work without it. https://app.trustmodel.ai
+      profile:
+        type: string
+        title: Tool profile
+        description: "'default' = 6 daily-driver tools; 'security' = all 20."
+        default: default
+    required: []
+  commandFunction: |
+    (config) => ({
+      command: 'node',
+      args: ['dist/index.js'],
+      env: {
+        TRUSTMODEL_API_KEY: config.apiKey || '',
+        TRUSTMODEL_PROFILE: config.profile || 'default'
+      }
+    })
