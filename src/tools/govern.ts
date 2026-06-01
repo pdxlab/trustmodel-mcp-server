@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Guardrail } from "../local/govern.js";
 import { availablePolicies } from "../policy_packs/index.js";
+import { localTier } from "../upsell.js";
 
 export const governToolName = "trustmodel_govern";
 
@@ -39,5 +40,6 @@ export async function handleGovern(args: {
     policy: verdict.policy,
     violations: verdict.violations,
     available_policies: availablePolicies(),
+    ...localTier(),
   };
 }
