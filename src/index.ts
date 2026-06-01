@@ -181,6 +181,8 @@ import {
   handleGovern,
 } from "./tools/govern.js";
 
+import { creditExhaustionUpsell } from "./upsell.js";
+
 import { startEvictionTimer } from "./trace-store.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -190,6 +192,12 @@ function formatResult(data: unknown): string {
 }
 
 function formatError(err: unknown): string {
+  // Credit exhaustion is a conversion moment, not just an error — surface a
+  // clear upgrade CTA (TRUS-1090) so the agent/user knows how to keep going.
+  const upsell = creditExhaustionUpsell(err);
+  if (upsell) {
+    return JSON.stringify(upsell, null, 2);
+  }
   // Error instances are the gotcha: name/message/stack are non-enumerable,
   // so a naive JSON.stringify(new Error("foo")) returns "{}" and the
   // caller sees an empty `<error>` envelope (TRUS-1032 — surfaced while
