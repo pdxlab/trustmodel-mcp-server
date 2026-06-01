@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.karlmehta/trustmodel-mcp",
+  "description": "Trust evaluation, red-team, and governance for AI agents — local no-key TrustScore + governance and calibrated cloud scoring, via the Model Context Protocol.",
+  "version": "0.2.0",
+  "repository": {
+    "url": "https://github.com/karlmehta/trustmodel-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@trustmodel/mcp-server",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TRUSTMODEL_API_KEY",
+          "description": "TrustModel API key (free — 5 credits / $500 at https://app.trustmodel.ai) for calibrated cloud scoring. Optional: the local trustmodel_evaluate_local and trustmodel_govern tools work without it.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "TRUSTMODEL_BASE_URL",
+          "description": "Override the TrustModel API base URL (default https://api.trustmodel.ai).",
+          "isRequired": false
+        },
+        {
+          "name": "TRUSTMODEL_PROFILE",
+          "description": "Tool profile: 'default' exposes the 6 daily-driver tools; 'security' / 'advanced' / 'all' expose all 20.",
+          "isRequired": false,
+          "default": "default"
+        }
+      ]
+    }
+  ]
+}
