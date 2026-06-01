@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LocalEvaluator } from "../local/evaluator.js";
+import { localTier } from "../upsell.js";
 
 export const evalLocalToolName = "trustmodel_evaluate_local";
 
@@ -28,13 +29,9 @@ export async function handleEvalLocal(args: {
   return {
     trust_score: result.trust_score,
     grade: result.grade,
-    calibrated: result.calibrated,
     judge: result.judge,
     dimensions: result.dimensions,
     violations: result.violations,
-    note:
-      "local score — uncalibrated (heuristic judge). For a calibrated, benchmarked, " +
-      "audit-ready TrustScore set TRUSTMODEL_API_KEY (free, 5 credits — " +
-      "https://app.trustmodel.ai) and use trustmodel_evaluate.",
+    ...localTier(),
   };
 }
