@@ -322,6 +322,66 @@ export async function listShadowAIEvents(
 }
 
 
+// ── AgentCert — Cert + Assurance for AI agents (TRUS-1249) ─────────────────
+//
+// AgentCert is SKU 4: the Certificate Authority + Assurance layer for AI
+// agents. Issuance mints a verifiable cert off an evaluation/free-scan,
+// binding agent identity (ANS) + org. Verification hits the public
+// `/v1/verify/<agent>` endpoint, which returns signature + revocation status
+// plus the agent's live TrustScore and cert freshness (continuous, not
+// point-in-time).
+//
+// Like Red Team and Shadow AI, the dashboard CA endpoints require OAuth2; the
+// MCP server only carries a TrustModel API key, so issuance hits the
+// SDK-flavoured wrapper under /sdk/v1/ that accepts
+// TrustModelAPIKeyAuthentication (the API key already carries its org
+// binding). Verification is intentionally public — anyone can verify a cert
+// without a key — so it hits /v1/verify/<agent> directly.
+
+export interface PostAgentCertIssueBody {
+  // Agent identity. agent_id is the stable ANS/registry identifier the cert is
+  // bound to and is later used as the <agent> path segment for verification.
+  agent_id: string;
+  agent_name?: string;
+  // Provenance of the trust signal the cert is minted off — supply either an
+  // evaluation_run_id (from trustmodel_evaluate / _evaluate_agent / free scan)
+  // or an explicit trust_score. The gateway resolves/validates whichever is
+  // present.
+  evaluation_run_id?: number;
+  trust_score?: number;
+  // Org binding override. Defaults to the org bound to the API key.
+  organization?: string;
+  validation_level?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export async function postAgentCertIssue(
+  body: PostAgentCertIssueBody
+): Promise<unknown> {
+  const res = await fetch(`${BASE_URL}/sdk/v1/agentcert/issue/`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ ...body, trigger_source: "mcp" }),
+  });
+  return handleResponse(res);
+}
+
+/**
+ * Verify an agent's AgentCert via the public /v1/verify/<agent> endpoint.
+ *
+ * Returns verified status (signature valid + not revoked), the agent's live
+ * TrustScore, and cert freshness. This endpoint is public by design — a cert
+ * must be verifiable by any relying party — so it does NOT send the Bearer
+ * token (sending it would gate the public padlock behind a key).
+ */
+export async function getAgentCertVerify(agent: string): Promise<unknown> {
+  const res = await fetch(
+    `${BASE_URL}/v1/verify/${encodeURIComponent(agent)}`,
+    { headers: { Accept: "application/json" } }
+  );
+  return handleResponse(res);
+}
+
 export async function listRedTeamProbes(filter: {
   category?: string;
   severity?: string;

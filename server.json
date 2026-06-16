@@ -30,7 +30,7 @@
         },
         {
           "name": "TRUSTMODEL_PROFILE",
-          "description": "Tool profile: 'default' exposes the 6 daily-driver tools; 'security' / 'advanced' / 'all' expose all 20.",
+          "description": "Tool profile: 'default' exposes the 6 daily-driver tools; 'security' / 'advanced' / 'all' expose all 22.",
           "isRequired": false,
           "default": "default"
         }

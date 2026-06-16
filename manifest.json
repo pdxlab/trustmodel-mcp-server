@@ -40,7 +40,7 @@
     "profile": {
       "type": "string",
       "title": "Tool profile",
-      "description": "'default' = 6 daily-driver tools; 'security' = all 20 (red team, shadow AI, MCP scan, cloud batch).",
+      "description": "'default' = 6 daily-driver tools; 'security' = all 22 (red team, shadow AI, MCP scan, cloud batch, AgentCert).",
       "default": "default",
       "required": false
     }

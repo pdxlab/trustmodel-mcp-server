@@ -7,7 +7,7 @@
  * capabilities to any MCP-compatible AI agent (Claude Code, Cursor, Windsurf,
  * Workday agents, Eightfold AI Interviewer, etc.).
  *
- * Active tools (20):
+ * Active tools (22):
  *   No-key local tier (no TRUSTMODEL_API_KEY required):
  *     19. trustmodel_evaluate_local            — local 10-dimension TrustScore (heuristic judge)
  *     20. trustmodel_govern                    — local policy-pack allow/block gate
@@ -31,6 +31,8 @@
  *  16.  trustmodel_shadowai_results            — GET  /api/v1/shadow-ai/scans/{int}/
  *  17.  trustmodel_shadowai_events             — GET  /api/v1/shadow-ai/scans/{int}/events/
  *  18.  trustmodel_shadow_discovery_fingerprint_keys — probe OpenAI/Anthropic API keys (TRUS-1012, 848d)
+ *  21.  agentcert_issue                       — POST /sdk/v1/agentcert/issue/ — mint a verifiable AgentCert (TRUS-1249)
+ *  22.  agentcert_verify                      — GET  /v1/verify/<agent> — verify cert: status + live score + freshness (TRUS-1249)
  *
  * Inactive (kept in src/ but not registered — backend endpoints missing):
  *   - trustmodel_evaluate_cots
@@ -180,6 +182,20 @@ import {
   governToolSchema,
   handleGovern,
 } from "./tools/govern.js";
+
+import {
+  agentCertIssueToolName,
+  agentCertIssueToolDescription,
+  agentCertIssueToolSchema,
+  handleAgentCertIssue,
+} from "./tools/agentcert-issue.js";
+
+import {
+  agentCertVerifyToolName,
+  agentCertVerifyToolDescription,
+  agentCertVerifyToolSchema,
+  handleAgentCertVerify,
+} from "./tools/agentcert-verify.js";
 
 import { creditExhaustionUpsell } from "./upsell.js";
 
@@ -616,6 +632,42 @@ server.tool(
   async (args) => {
     try {
       const result = await handleGovern(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 21 — agentcert_issue (TRUS-1249)
+server.tool(
+  agentCertIssueToolName,
+  agentCertIssueToolDescription,
+  agentCertIssueToolSchema,
+  async (args) => {
+    try {
+      const result = await handleAgentCertIssue(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 22 — agentcert_verify (TRUS-1249)
+server.tool(
+  agentCertVerifyToolName,
+  agentCertVerifyToolDescription,
+  agentCertVerifyToolSchema,
+  async (args) => {
+    try {
+      const result = await handleAgentCertVerify(args);
       return { content: [{ type: "text", text: formatResult(result) }] };
     } catch (err) {
       return {

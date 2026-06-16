@@ -84,7 +84,7 @@ To stay within the 5–8 tool best-practice budget (more tools degrade an agent'
 **Default profile (6 tools)** — the daily drivers:
 `trustmodel_evaluate_local` · `trustmodel_score` · `trustmodel_trace_start` · `trustmodel_trace_step` · `trustmodel_trace_finalize` · `trustmodel_govern`
 
-**Advanced** — set `TRUSTMODEL_PROFILE=security` (or `advanced` / `all`, or `TRUSTMODEL_ADVANCED_TOOLS=true`) to additionally expose: `trustmodel_evaluate` (cloud batch), `trustmodel_credits`, `trustmodel_upload_trace`, `trustmodel_evaluate_agent`, `trustmodel_score_agent`, `trustmodel_mcp_scan_server`, `trustmodel_shadow_discovery_*`, `trustmodel_redteam_*`, and `trustmodel_shadowai_*` — **20 tools total**.
+**Advanced** — set `TRUSTMODEL_PROFILE=security` (or `advanced` / `all`, or `TRUSTMODEL_ADVANCED_TOOLS=true`) to additionally expose: `trustmodel_evaluate` (cloud batch), `trustmodel_credits`, `trustmodel_upload_trace`, `trustmodel_evaluate_agent`, `trustmodel_score_agent`, `trustmodel_mcp_scan_server`, `trustmodel_shadow_discovery_*`, `trustmodel_redteam_*`, `trustmodel_shadowai_*`, and `agentcert_*` — **22 tools total**.
 
 ```bash
 claude mcp add trustmodel --env TRUSTMODEL_PROFILE=security -- npx -y @trustmodel/mcp-server
@@ -92,7 +92,7 @@ claude mcp add trustmodel --env TRUSTMODEL_PROFILE=security -- npx -y @trustmode
 
 ## Tools
 
-The server exposes **18 tools** across six areas. Use this table to pick the right one; full input/output docs follow below.
+The server exposes **22 tools** across seven areas. Use this table to pick the right one; full input/output docs follow below.
 
 | Tool | Group | When to use |
 |---|---|---|
@@ -114,6 +114,8 @@ The server exposes **18 tools** across six areas. Use this table to pick the rig
 | `trustmodel_shadowai_scan` | Shadow AI | Start a Shadow AI scan to find unregistered AI use across an environment. |
 | `trustmodel_shadowai_results` | Shadow AI | Fetch results for a Shadow AI scan. |
 | `trustmodel_shadowai_events` | Shadow AI | Stream the detection events for a Shadow AI scan. |
+| `agentcert_issue` | AgentCert | Mint a verifiable AgentCert for an agent off an evaluation/score, bound to its identity + org. |
+| `agentcert_verify` | AgentCert | Verify an agent's AgentCert (signature, revocation) and read its live TrustScore + cert freshness. |
 
 > **Shadow Discovery** tools (`trustmodel_shadow_discovery_*`) touch the local filesystem. They are always listed, but return a skip report unless `TRUSTMODEL_AGT_DISCOVERY_ENABLED=true` is set on the server.
 
@@ -310,6 +312,26 @@ Page through individual discovery events — each is one discovered AI system wi
 
 **Inputs:**
 - `scan_id` (integer or numeric string, required), plus optional `system_type` / `source` filters and pagination.
+
+### AgentCert
+
+TrustModel SKU 4 — the Certificate Authority + Assurance layer for AI agents. An AgentCert binds an agent's identity and org to a trust signal from an evaluation and is **continuously revalidated** against the agent's live score (not a point-in-time PDF).
+
+#### `agentcert_issue`
+
+Mint a verifiable AgentCert for an agent. Supply `agent_id` plus **either** an `evaluation_run_id` (from `trustmodel_evaluate` / `trustmodel_evaluate_agent` / a free scan) **or** an explicit `trust_score`.
+
+**Inputs:**
+- `agent_id` (string, required), `agent_name` (string, optional), `evaluation_run_id` (integer or numeric string) **or** `trust_score` (0–100), `organization` (string, optional, defaults to the API key's org), `validation_level` (`DV` / `OV` / `EV`, optional), `metadata` (object, optional).
+
+**Returns:** The minted cert (id, signed credential, validation level, issued/expiry) and the verification handle for `agentcert_verify`.
+
+#### `agentcert_verify`
+
+Verify an agent's AgentCert via the public `/v1/verify/<agent>` endpoint — checks signature + revocation and returns verified status, the agent's live 0–100 TrustScore, and cert freshness. Public; no API key required.
+
+**Inputs:**
+- `agent` (string, required) — the `agent_id` used at issuance.
 
 ## Example — streaming agent capture
 
