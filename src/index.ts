@@ -81,6 +81,7 @@ import {
   agentScoreToolDescription,
   agentScoreToolSchema,
   handleAgentScore,
+  formatComplianceSummary,
 } from "./tools/agent-score.js";
 
 import {
@@ -346,7 +347,8 @@ server.tool(
   async (args) => {
     try {
       const result = await handleEvaluateAgent(args);
-      return { content: [{ type: "text", text: formatResult(result) }] };
+      const text = formatResult(result) + formatComplianceSummary(result);
+      return { content: [{ type: "text", text }] };
     } catch (err) {
       return {
         content: [{ type: "text", text: formatError(err) }],
@@ -364,7 +366,8 @@ server.tool(
   async (args) => {
     try {
       const result = await handleAgentScore(args);
-      return { content: [{ type: "text", text: formatResult(result) }] };
+      const text = formatResult(result) + formatComplianceSummary(result);
+      return { content: [{ type: "text", text }] };
     } catch (err) {
       return {
         content: [{ type: "text", text: formatError(err) }],
