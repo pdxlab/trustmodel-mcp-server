@@ -219,6 +219,7 @@ Create an agentic evaluation run against a previously-uploaded trace.
 - `goal` / `name` / `agent_framework` (strings, required).
 - `agent_model` / `expected_outcome` / `actual_outcome` (string, optional).
 - `goal_achieved` (boolean, optional).
+- `frameworks` (string array, optional) — Compliance framework slugs to evaluate the trace against (e.g. `["owasp-asi", "nist-ai-rmf"]`). Omit to skip compliance evaluation.
 
 **Returns:** `{ evaluation_run_id, status, message }`.
 
@@ -228,6 +229,8 @@ Fetch the detail (scores, grade, summary) for an agentic evaluation run.
 
 **Inputs:**
 - `evaluation_run_id` (integer or numeric string, required).
+
+When the run was created with `frameworks`, the result text appends a per-framework compliance summary (slug, status, compliance percentage, and report URL when available).
 
 ### Security
 

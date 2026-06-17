@@ -23,3 +23,36 @@ export async function handleAgentScore(args: {
 }): Promise<unknown> {
   return getAgenticEvaluation(Number(args.evaluation_run_id));
 }
+
+interface ComplianceFrameworkSummary {
+  slug?: string;
+  name?: string;
+  overall_status?: string | null;
+  compliance_percentage?: number | null;
+}
+
+/**
+ * Build a short, human-readable per-framework compliance summary from an
+ * agentic evaluation result. Returns an empty string when the result carries
+ * no compliance view, so callers can append it unconditionally.
+ */
+export function formatComplianceSummary(result: unknown): string {
+  if (!result || typeof result !== "object") return "";
+  const frameworks = (result as { compliance_frameworks?: unknown }).compliance_frameworks;
+  if (!Array.isArray(frameworks) || frameworks.length === 0) return "";
+
+  const lines = (frameworks as ComplianceFrameworkSummary[]).map((fw) => {
+    const slug = fw.slug ?? fw.name ?? "unknown";
+    const status = fw.overall_status ?? "pending";
+    const pct =
+      typeof fw.compliance_percentage === "number" ? `${fw.compliance_percentage}%` : "n/a";
+    return `  - ${slug}: ${status} (${pct})`;
+  });
+
+  const reportUrl = (result as { compliance_report_url?: unknown }).compliance_report_url;
+  if (typeof reportUrl === "string" && reportUrl.length > 0) {
+    lines.push(`  report: ${reportUrl}`);
+  }
+
+  return `\n\nCompliance:\n${lines.join("\n")}`;
+}
