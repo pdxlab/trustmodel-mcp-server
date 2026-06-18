@@ -193,12 +193,24 @@ export async function postEvaluateAgent(body: {
   expected_outcome?: string;
   actual_outcome?: string;
   goal_achieved?: boolean;
+  frameworks?: string[];
+  control_ids?: string[];
   trigger_source?: string;
 }): Promise<unknown> {
+  // Only forward compliance-framework keys when non-empty so the backend
+  // falls back to its defaults (all controls of the selected frameworks).
+  const { frameworks, control_ids, ...rest } = body;
+  const payload: Record<string, unknown> = {
+    ...rest,
+    trigger_source: body.trigger_source ?? "mcp",
+  };
+  if (frameworks && frameworks.length > 0) payload.frameworks = frameworks;
+  if (control_ids && control_ids.length > 0) payload.control_ids = control_ids;
+
   const res = await fetch(`${BASE_URL}/sdk/v1/agentic/evaluate/`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ ...body, trigger_source: body.trigger_source ?? "mcp" }),
+    body: JSON.stringify(payload),
   });
   return handleResponse(res);
 }
