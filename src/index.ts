@@ -182,6 +182,20 @@ import {
   handleGovern,
 } from "./tools/govern.js";
 
+import {
+  agentCertIssueToolName,
+  agentCertIssueToolDescription,
+  agentCertIssueToolSchema,
+  handleAgentCertIssue,
+} from "./tools/agentcert-issue.js";
+
+import {
+  agentCertVerifyToolName,
+  agentCertVerifyToolDescription,
+  agentCertVerifyToolSchema,
+  handleAgentCertVerify,
+} from "./tools/agentcert-verify.js";
+
 import { creditExhaustionUpsell } from "./upsell.js";
 
 import { startEvictionTimer } from "./trace-store.js";
@@ -619,6 +633,42 @@ server.tool(
   async (args) => {
     try {
       const result = await handleGovern(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 21 — agentcert_issue (AgentCert — mint a verifiable cert; advanced)
+server.tool(
+  agentCertIssueToolName,
+  agentCertIssueToolDescription,
+  agentCertIssueToolSchema,
+  async (args) => {
+    try {
+      const result = await handleAgentCertIssue(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 22 — agentcert_verify (AgentCert — public verification; advanced)
+server.tool(
+  agentCertVerifyToolName,
+  agentCertVerifyToolDescription,
+  agentCertVerifyToolSchema,
+  async (args) => {
+    try {
+      const result = await handleAgentCertVerify(args);
       return { content: [{ type: "text", text: formatResult(result) }] };
     } catch (err) {
       return {
