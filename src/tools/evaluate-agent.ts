@@ -37,6 +37,13 @@ export const evaluateAgentToolSchema = {
     .boolean()
     .optional()
     .describe("Optional caller-provided verdict on whether the agent achieved its goal."),
+  frameworks: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Optional list of compliance framework slugs to evaluate the trace against " +
+        "(e.g. ['owasp-asi', 'nist-ai-rmf']). When omitted, no compliance evaluation is run."
+    ),
 };
 
 export async function handleEvaluateAgent(args: {
@@ -48,6 +55,7 @@ export async function handleEvaluateAgent(args: {
   expected_outcome?: string;
   actual_outcome?: string;
   goal_achieved?: boolean;
+  frameworks?: string[];
 }): Promise<unknown> {
   return postEvaluateAgent({
     file_path: args.file_path,
@@ -58,5 +66,6 @@ export async function handleEvaluateAgent(args: {
     expected_outcome: args.expected_outcome,
     actual_outcome: args.actual_outcome,
     goal_achieved: args.goal_achieved,
+    frameworks: args.frameworks,
   });
 }
