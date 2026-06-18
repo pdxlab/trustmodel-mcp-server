@@ -84,7 +84,7 @@ To stay within the 5–8 tool best-practice budget (more tools degrade an agent'
 **Default profile (6 tools)** — the daily drivers:
 `trustmodel_evaluate_local` · `trustmodel_score` · `trustmodel_trace_start` · `trustmodel_trace_step` · `trustmodel_trace_finalize` · `trustmodel_govern`
 
-**Advanced** — set `TRUSTMODEL_PROFILE=security` (or `advanced` / `all`, or `TRUSTMODEL_ADVANCED_TOOLS=true`) to additionally expose: `trustmodel_evaluate` (cloud batch), `trustmodel_credits`, `trustmodel_upload_trace`, `trustmodel_evaluate_agent`, `trustmodel_score_agent`, `trustmodel_mcp_scan_server`, `trustmodel_shadow_discovery_*`, `trustmodel_redteam_*`, and `trustmodel_shadowai_*` — **20 tools total**.
+**Advanced** — set `TRUSTMODEL_PROFILE=security` (or `advanced` / `all`, or `TRUSTMODEL_ADVANCED_TOOLS=true`) to additionally expose: `trustmodel_evaluate` (cloud batch), `trustmodel_credits`, `trustmodel_upload_trace`, `trustmodel_evaluate_agent`, `trustmodel_score_agent`, `trustmodel_mcp_scan_server`, `trustmodel_shadow_discovery_*`, `trustmodel_redteam_*`, `trustmodel_shadowai_*`, and `agentcert_issue` / `agentcert_verify` (AgentCert) — **22 tools total**.
 
 ```bash
 claude mcp add trustmodel --env TRUSTMODEL_PROFILE=security -- npx -y @trustmodel/mcp-server
@@ -92,7 +92,7 @@ claude mcp add trustmodel --env TRUSTMODEL_PROFILE=security -- npx -y @trustmode
 
 ## Tools
 
-The server exposes **18 tools** across six areas. Use this table to pick the right one; full input/output docs follow below.
+The server exposes **20 tools** across seven areas. Use this table to pick the right one; full input/output docs follow below.
 
 | Tool | Group | When to use |
 |---|---|---|
@@ -114,6 +114,8 @@ The server exposes **18 tools** across six areas. Use this table to pick the rig
 | `trustmodel_shadowai_scan` | Shadow AI | Start a Shadow AI scan to find unregistered AI use across an environment. |
 | `trustmodel_shadowai_results` | Shadow AI | Fetch results for a Shadow AI scan. |
 | `trustmodel_shadowai_events` | Shadow AI | Stream the detection events for a Shadow AI scan. |
+| `agentcert_issue` | AgentCert | Mint a verifiable AgentCert for an agent off an evaluation run (signed VC + X.509). Requires an API key. |
+| `agentcert_verify` | AgentCert | Verify an agent's AgentCert (signature, revocation, live TrustScore, freshness). Public — no API key. |
 
 > **Shadow Discovery** tools (`trustmodel_shadow_discovery_*`) touch the local filesystem. They are always listed, but return a skip report unless `TRUSTMODEL_AGT_DISCOVERY_ENABLED=true` is set on the server.
 
@@ -313,6 +315,35 @@ Page through individual discovery events — each is one discovered AI system wi
 
 **Inputs:**
 - `scan_id` (integer or numeric string, required), plus optional `system_type` / `source` filters and pagination.
+
+### AgentCert — `agentcert_issue` / `agentcert_verify`
+
+AgentCert is the Certificate Authority for AI agents: it binds an agent's identity (its ANS name) and owning org to a TrustScore from an evaluation, in a cryptographically signed, continuously-revalidated credential (W3C Verifiable Credential + X.509). These tools are in the **advanced** profile.
+
+#### `agentcert_issue`
+
+Mint a verifiable AgentCert off a completed evaluation run. Requires `TRUSTMODEL_API_KEY`; the org is derived from the key. Calls `POST /sdk/v1/agentcert/issue/`.
+
+**Inputs:**
+- `ans_name` (string, required) — the Agent Naming Service name to bind, e.g. `helpbot.cisco.com`.
+- `evaluation_run_id` (integer or numeric string, required) — the eval run to mint from; must belong to your org.
+- `subject_agent_id` (string, optional), `auditor_slug` (string, optional), `validity_days` (integer 1–825, optional; default 90).
+
+**Returns:** the signed cert — `serial`, `status`, `validation_level` (`DV`/`OV`/`EV`), `trust_score_snapshot` (0–100), `dimension_scores`, and the `vc_jsonld` + `x509_pem` documents.
+
+#### `agentcert_verify`
+
+Verify an agent's AgentCert. **Public — no API key required.** Calls `GET /v1/verify/<agent>/`. Verification is continuous: a cert whose live score has drifted (or which was revoked) returns `verified: false` even with an intact signature.
+
+**Inputs:**
+- `agent` (string, required) — the agent's ANS name or `subject_agent_id`.
+
+**Returns:** `found`, `verified`, `status`, `signature_valid`, the live `trust_score` (0–100), `validation_level`, `dimension_scores`, and a `liveness` block.
+
+**Example prompts** — you describe the intent; the agent picks the tool:
+- "Verify the AgentCert for `helpbot.cisco.com` — is it still trusted, and what's its live TrustScore?"
+- "Has `acme.support-bot`'s certificate been revoked?"
+- "Issue an AgentCert for my agent `helpbot.cisco.com`."
 
 ## Example — streaming agent capture
 
