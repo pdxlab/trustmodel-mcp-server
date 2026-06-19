@@ -352,3 +352,40 @@ export async function listRedTeamProbes(filter: {
   );
   return handleResponse(res);
 }
+
+// ── AgentCert (TRUS-1229) ─────────────────────────────────────────────────────
+
+export interface AgentCertIssueBody {
+  evaluation_run_id: number;
+  ans_name: string;
+  subject_agent_id?: string;
+  auditor_slug?: string;
+  validity_days?: number;
+}
+
+/**
+ * Mint a verifiable AgentCert — POST /sdk/v1/agentcert/issue/.
+ * API-key authed (the SDK-keyed wrapper; org is derived from the key).
+ */
+export async function postAgentCertIssue(body: AgentCertIssueBody): Promise<unknown> {
+  const res = await fetch(`${BASE_URL}/sdk/v1/agentcert/issue/`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  return handleResponse(res);
+}
+
+/**
+ * Verify an agent's AgentCert — GET /v1/verify/<agent>/.
+ * PUBLIC: no Authorization header (works without an API key). The trailing
+ * slash is required (the gateway 301-redirects otherwise) and the agent
+ * segment is URL-encoded.
+ */
+export async function getAgentCertVerify(agent: string): Promise<unknown> {
+  const res = await fetch(
+    `${BASE_URL}/v1/verify/${encodeURIComponent(agent)}/`,
+    { headers: { Accept: "application/json" } }
+  );
+  return handleResponse(res);
+}
