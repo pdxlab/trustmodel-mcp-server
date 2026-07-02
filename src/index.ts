@@ -31,10 +31,12 @@
  *  16.  trustmodel_shadowai_results            — GET  /api/v1/shadow-ai/scans/{int}/
  *  17.  trustmodel_shadowai_events             — GET  /api/v1/shadow-ai/scans/{int}/events/
  *  18.  trustmodel_shadow_discovery_fingerprint_keys — probe OpenAI/Anthropic API keys (TRUS-1012, 848d)
+ *  21.  agentcert_issue                       — POST /sdk/v1/agentcert/issue/           (TRUS-1229; advanced)
+ *  22.  agentcert_verify                      — GET  /v1/verify/{agent}/                (advanced)
+ *  23.  trustmodel_guardrails_check           — POST /sdk/v1/guardrails/check           (TRUS-1326; advanced)
  *
  * Inactive (kept in src/ but not registered — backend endpoints missing):
  *   - trustmodel_evaluate_cots
- *   - trustmodel_guardrails_check
  *   - trustmodel_evaluate_mcp_server
  */
 
@@ -195,6 +197,13 @@ import {
   agentCertVerifyToolSchema,
   handleAgentCertVerify,
 } from "./tools/agentcert-verify.js";
+
+import {
+  guardrailsToolName,
+  guardrailsToolDescription,
+  guardrailsToolSchema,
+  handleGuardrails,
+} from "./tools/guardrails.js";
 
 import { creditExhaustionUpsell } from "./upsell.js";
 
@@ -669,6 +678,24 @@ server.tool(
   async (args) => {
     try {
       const result = await handleAgentCertVerify(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 23 — trustmodel_guardrails_check (inline pre-execution allow/deny; advanced, TRUS-1326)
+server.tool(
+  guardrailsToolName,
+  guardrailsToolDescription,
+  guardrailsToolSchema,
+  async (args) => {
+    try {
+      const result = await handleGuardrails(args);
       return { content: [{ type: "text", text: formatResult(result) }] };
     } catch (err) {
       return {

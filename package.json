@@ -26,6 +26,7 @@
     "verify:fingerprint": "npm run build && node scripts/verify-fingerprint.mjs",
     "verify:error-envelope": "npm run build && node scripts/verify-error-envelope.mjs",
     "verify:agentcert": "npm run build && node scripts/verify-agentcert.mjs",
+    "verify:guardrails": "npm run build && node scripts/verify-guardrails.mjs",
     "regression:scanner": "npm run build && node regression/scanner.mjs",
     "smoke": "npm run build && node e2e/smoke.mjs"
   },
