@@ -91,6 +91,26 @@ nextDecision = "redact";
 res = await handleGuardrails({ agent_id: "a", action_type: "noop" });
 check("redact → allowed=false (block)", res.allowed === false);
 
+// ── an UNKNOWN verdict is a block (fail-closed) ─────────────────────────────
+nextDecision = "weird";
+res = await handleGuardrails({ agent_id: "a", action_type: "noop" });
+check("unknown verdict → allowed=false (fail-closed)", res.allowed === false);
+check("unknown decision preserved", res.decision === "weird");
+
+// ── a transport throw propagates (the tool wrapper surfaces it as isError) ──
+const _origFetch = globalThis.fetch;
+let _threw = false;
+globalThis.fetch = async () => {
+  throw new Error("Network timeout");
+};
+try {
+  await handleGuardrails({ agent_id: "a", action_type: "noop" });
+} catch (err) {
+  _threw = err instanceof Error;
+}
+globalThis.fetch = _origFetch;
+check("transport throw → handler rejects (never silently allows)", _threw === true);
+
 if (failures) {
   console.error(`\n${failures} guardrail contract check(s) failed`);
   process.exit(1);
