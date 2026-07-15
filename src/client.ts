@@ -389,3 +389,46 @@ export async function getAgentCertVerify(agent: string): Promise<unknown> {
   );
   return handleResponse(res);
 }
+
+// ── Inline guardrail (TRUS-1326, Surface D) ─────────────────────────────────
+//
+// The dashboard reaches the guardrail engine at /api/v1/guardrails/check, which
+// requires Connected-App OAuth (govern:enforce) or OAuth2 + X-Organization-ID.
+// The MCP server only carries a TrustModel API key, so we hit the SDK-flavoured
+// wrapper under /sdk/v1/guardrails/check that accepts TrustModelAPIKeyAuthentication
+// (aurora-gateway sdk/guardrails_views.py). The key carries its org binding.
+
+export interface GuardrailsCheckBody {
+  agent_id: string;
+  action_type: string;
+  action_payload?: Record<string, unknown>;
+  subject_id?: string;
+  policy_name?: string;
+}
+
+export interface GuardrailsCheckResponse {
+  decision: "allow" | "deny" | "redact";
+  policy_id: string;
+  reason: string;
+  trust_score: number | null;
+  evidence: Record<string, unknown>;
+  latency_ms: number;
+}
+
+/**
+ * Pre-execution allow/deny/redact decision for a single agent action —
+ * POST /sdk/v1/guardrails/check. Fail-closed: an unknown verdict, an
+ * unloaded policy, or an engine error is resolved to the org's fail_mode
+ * decision server-side. Note the path has no trailing slash (mirrors
+ * /api/v1/guardrails/check).
+ */
+export async function postGuardrailsCheck(
+  body: GuardrailsCheckBody
+): Promise<GuardrailsCheckResponse> {
+  const res = await fetch(`${BASE_URL}/sdk/v1/guardrails/check`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  return handleResponse(res) as Promise<GuardrailsCheckResponse>;
+}
