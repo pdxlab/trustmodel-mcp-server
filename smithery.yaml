@@ -20,7 +20,7 @@ startCommand:
   commandFunction: |
     (config) => ({
       command: 'node',
-      args: ['dist/index.js'],
+      args: ['bin/trustmodel-mcp.mjs'],
       env: {
         TRUSTMODEL_API_KEY: config.apiKey || '',
         TRUSTMODEL_PROFILE: config.profile || 'default'

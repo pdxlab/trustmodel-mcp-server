@@ -15,6 +15,18 @@ Works with Claude Code, Cursor, Windsurf, Claude Desktop, and any other MCP-comp
 - **Claude Desktop** — download `trustmodel.mcpb` from [Releases](https://github.com/karlmehta/trustmodel-mcp/releases) and drag it into Settings → Extensions (no JSON editing). Build it locally with `./scripts/build-mcpb.sh`.
 - **Aggregators** — also listed on [Smithery](https://smithery.ai/server/@trustmodel/mcp-server) and [Glama](https://glama.ai/mcp/servers) (`smithery.yaml` / `glama.json` in this repo).
 
+## Requirements
+
+Node.js **22.12.0 or newer** is required. Node.js 24 LTS is recommended.
+
+```bash
+node --version
+# Upgrade with nvm when needed:
+nvm install 24 && nvm use 24
+```
+
+Older runtimes cannot load the ESM-only cryptography dependencies used by the governance SDK. Installation and startup therefore stop with an actionable version message before the MCP server loads.
+
 ## Quick Start
 
 ### 1. Get an API key
@@ -502,9 +514,10 @@ Reports, evaluation history, and detailed PDF/HTML findings are available in the
 
 | Symptom | Fix |
 |---|---|
+| Server exits with a Node.js version message or `ERR_REQUIRE_ESM` | Upgrade to Node.js 24 LTS (recommended) or Node.js ≥ 22.12, then rerun `npx -y @trustmodel/mcp-server`. |
 | Server exits immediately / `TRUSTMODEL_API_KEY` error | Set a valid key (`tm-{env}-{keyid}_{secret}`) in your client's `env` block. Get one at [app.trustmodel.ai](https://app.trustmodel.ai) → **Settings → API Keys**. |
 | `trustmodel_shadow_discovery_*` returns a skip report | Set `TRUSTMODEL_AGT_DISCOVERY_ENABLED=true` on the server. These tools touch the local filesystem and are off by default. |
-| `npx` can't find the package | Ensure Node ≥ 20.19 and run `npx -y @trustmodel/mcp-server` so the latest version is fetched. |
+| `npx` can't find the package | Ensure Node.js ≥ 22.12 and run `npx -y @trustmodel/mcp-server` so the latest version is fetched. |
 | Tool not listed by the client | Restart the MCP client after editing its config; confirm the `command`/`args` match the examples above. |
 
 ## TrustModel open-source

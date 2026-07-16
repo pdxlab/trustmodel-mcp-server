@@ -1,6 +1,6 @@
 {
   "name": "@trustmodel/mcp-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "TrustModel MCP Server — trust evaluation for AI agents via Model Context Protocol",
   "mcpName": "io.github.karlmehta/trustmodel-mcp",
   "type": "module",
@@ -14,13 +14,18 @@
   },
   "author": "Karl Mehta",
   "bin": {
-    "trustmodel-mcp": "./dist/index.js"
+    "trustmodel-mcp": "./bin/trustmodel-mcp.mjs"
   },
   "main": "./dist/index.js",
   "scripts": {
+    "preinstall": "node bin/check-node.mjs",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node bin/trustmodel-mcp.mjs",
     "dev": "tsc --watch",
+    "test": "npm run test:node-version",
+    "test:node-version": "node --test tests/node-version.test.mjs",
+    "verify:mcp-handshake": "node scripts/verify-mcp-handshake.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
     "verify:scanner": "npm run build && node scripts/verify-scanner.mjs",
     "verify:discovery": "npm run build && node scripts/verify-shadow-discovery.mjs",
     "verify:fingerprint": "npm run build && node scripts/verify-fingerprint.mjs",
@@ -55,9 +60,10 @@
     "typescript": "^5.7.3"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.12.0"
   },
   "files": [
+    "bin/",
     "dist/"
   ]
 }
