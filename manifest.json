@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "trustmodel",
   "display_name": "TrustModel",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Trust evaluation, red-team, and governance for AI agents via the Model Context Protocol.",
   "long_description": "Score AI output across 10 trust dimensions (local, no key), gate it against policy packs (EU AI Act, NIST AI RMF, NYC LL144, OWASP LLM), capture and evaluate agentic traces, and run calibrated cloud scoring with a free TrustModel API key.",
   "author": {
@@ -19,10 +19,10 @@
   "keywords": ["mcp", "ai-safety", "eval", "red-team", "governance", "trust-score"],
   "server": {
     "type": "node",
-    "entry_point": "dist/index.js",
+    "entry_point": "bin/trustmodel-mcp.mjs",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/dist/index.js"],
+      "args": ["${__dirname}/bin/trustmodel-mcp.mjs"],
       "env": {
         "TRUSTMODEL_API_KEY": "${user_config.api_key}",
         "TRUSTMODEL_PROFILE": "${user_config.profile}"
