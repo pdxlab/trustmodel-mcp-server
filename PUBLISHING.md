@@ -15,10 +15,11 @@ Requires npm auth for the `@trustmodel` org (`npm login`).
 ```bash
 npm ci
 npm run build
-npm publish --access public        # publishes @trustmodel/mcp-server@0.2.0
+npm run verify:package
+npm publish --access public        # publishes @trustmodel/mcp-server@0.2.1
 ```
 
-Verify: `npm view @trustmodel/mcp-server version` → `0.2.0`, and the package page
+Verify: `npm view @trustmodel/mcp-server version` → `0.2.1`, and the package page
 shows the `mcpName` and `repository`/`homepage` links.
 
 ## 2. Publish to the official MCP Registry

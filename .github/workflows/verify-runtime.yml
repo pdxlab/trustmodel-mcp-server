@@ -1,0 +1,92 @@
+name: verify-runtime
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  supported-runtimes:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22.12.0", "24"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Node.js version policy
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Run existing offline verification scripts
+        run: |
+          node scripts/verify-scanner.mjs
+          node scripts/verify-shadow-discovery.mjs
+          node scripts/verify-fingerprint.mjs
+          node scripts/verify-error-envelope.mjs
+          node scripts/verify-agentcert.mjs
+          node regression/scanner.mjs
+
+      - name: Verify MCP initialization through guarded launcher
+        run: npm run verify:mcp-handshake
+
+      - name: Verify published files and distribution entrypoints
+        run: npm run verify:package
+
+  unsupported-runtime:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.11.0"
+
+      - name: Pack without lifecycle scripts
+        run: npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+
+      - name: Verify preinstall rejects Node.js 22.11
+        run: |
+          mkdir "$RUNNER_TEMP/preinstall-check"
+          cd "$RUNNER_TEMP/preinstall-check"
+          npm init -y >/dev/null
+          set +e
+          output=$(npm_config_engine_strict=false npm install --foreground-scripts "$RUNNER_TEMP/trustmodel-mcp-server-0.2.1.tgz" 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -ne 0
+          grep -F "TrustModel MCP Server requires Node.js >=22.12.0." <<<"$output"
+          grep -F "Detected Node.js v22.11.0." <<<"$output"
+          if grep -F "ERR_REQUIRE_ESM" <<<"$output"; then exit 1; fi
+
+      - name: Verify launcher protects installs made with --ignore-scripts
+        run: |
+          mkdir "$RUNNER_TEMP/startup-check"
+          cd "$RUNNER_TEMP/startup-check"
+          npm init -y >/dev/null
+          npm_config_engine_strict=false npm install --ignore-scripts "$RUNNER_TEMP/trustmodel-mcp-server-0.2.1.tgz"
+          set +e
+          output=$(node node_modules/@trustmodel/mcp-server/bin/trustmodel-mcp.mjs 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -ne 0
+          grep -F "TrustModel MCP Server requires Node.js >=22.12.0." <<<"$output"
+          grep -F "Detected Node.js v22.11.0." <<<"$output"
+          if grep -F "ERR_REQUIRE_ESM" <<<"$output"; then exit 1; fi
