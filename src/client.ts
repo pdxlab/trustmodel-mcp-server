@@ -165,7 +165,16 @@ export async function putToSignedUrl(
 ): Promise<void> {
   const res = await fetch(signedUrl, {
     method: "PUT",
-    headers: { "Content-Type": contentType },
+    headers: {
+      "Content-Type": contentType,
+      // Azure Blob SAS PUT requires x-ms-blob-type; GCS/S3 ignore it.
+      // Without this, Azure returns 400 MissingRequiredHeader and the
+      // trace_finalize / upload_trace flow silently fails (never mints
+      // an evaluation_run_id). Same cloud-agnostic fix that TRUS-1305
+      // applied to cosmic-vector's FE uploaders (see FE's
+      // signedUrlUpload helpers).
+      "x-ms-blob-type": "BlockBlob",
+    },
     body,
   });
   if (!res.ok) {
