@@ -1,0 +1,15 @@
+{
+  "name": "certified-mcp-server-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reference MCP server that refuses untrusted agents via the TrustModel reputation gate (TRUS-1584).",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test gate.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.2"
+  }
+}
