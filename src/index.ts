@@ -195,6 +195,12 @@ import {
   agentCertVerifyToolSchema,
   handleAgentCertVerify,
 } from "./tools/agentcert-verify.js";
+import {
+  agentCertVerifyOfflineToolName,
+  agentCertVerifyOfflineToolDescription,
+  agentCertVerifyOfflineToolSchema,
+  handleAgentCertVerifyOffline,
+} from "./tools/agentcert-verify-offline.js";
 
 import { creditExhaustionUpsell } from "./upsell.js";
 
@@ -669,6 +675,24 @@ server.tool(
   async (args) => {
     try {
       const result = await handleAgentCertVerify(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 23 — agentcert_verify_offline (AgentCert — client-side X.509 verification, TRUS-1575)
+server.tool(
+  agentCertVerifyOfflineToolName,
+  agentCertVerifyOfflineToolDescription,
+  agentCertVerifyOfflineToolSchema,
+  async (args) => {
+    try {
+      const result = await handleAgentCertVerifyOffline(args);
       return { content: [{ type: "text", text: formatResult(result) }] };
     } catch (err) {
       return {
