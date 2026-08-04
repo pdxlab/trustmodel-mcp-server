@@ -196,6 +196,13 @@ import {
   handleAgentCertVerify,
 } from "./tools/agentcert-verify.js";
 
+import {
+  agentCertGateToolName,
+  agentCertGateToolDescription,
+  agentCertGateToolSchema,
+  handleAgentCertGate,
+} from "./tools/agentcert-gate.js";
+
 import { creditExhaustionUpsell } from "./upsell.js";
 
 import { startEvictionTimer } from "./trace-store.js";
@@ -669,6 +676,24 @@ server.tool(
   async (args) => {
     try {
       const result = await handleAgentCertVerify(args);
+      return { content: [{ type: "text", text: formatResult(result) }] };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatError(err) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool 23 — agentcert_gate (AgentCert — allow/challenge/block a calling agent, TRUS-1582)
+server.tool(
+  agentCertGateToolName,
+  agentCertGateToolDescription,
+  agentCertGateToolSchema,
+  async (args) => {
+    try {
+      const result = await handleAgentCertGate(args);
       return { content: [{ type: "text", text: formatResult(result) }] };
     } catch (err) {
       return {
