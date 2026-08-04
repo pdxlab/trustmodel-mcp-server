@@ -22,8 +22,9 @@
     "build": "tsc",
     "start": "node bin/trustmodel-mcp.mjs",
     "dev": "tsc --watch",
-    "test": "npm run test:node-version",
+    "test": "npm run test:node-version && npm run test:agentcert-offline",
     "test:node-version": "node --test tests/node-version.test.mjs",
+    "test:agentcert-offline": "npm run build && node --test tests/agentcert-verify-offline.test.mjs",
     "verify:mcp-handshake": "node scripts/verify-mcp-handshake.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:scanner": "npm run build && node scripts/verify-scanner.mjs",
@@ -52,6 +53,7 @@
   "dependencies": {
     "@microsoft/agent-governance-sdk": "^3.7.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@peculiar/x509": "^1.12.3",
     "node-fetch": "^3.3.2",
     "zod": "^3.24.2"
   },
