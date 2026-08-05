@@ -40,7 +40,7 @@
     "profile": {
       "type": "string",
       "title": "Tool profile",
-      "description": "'default' = 6 daily-driver tools; 'security' = all 20 (red team, shadow AI, MCP scan, cloud batch).",
+      "description": "'default' = 7 daily-driver tools; 'security' = all 23 (red team, shadow AI, MCP scan, cloud batch).",
       "default": "default",
       "required": false
     }
@@ -48,6 +48,7 @@
   "tools": [
     { "name": "trustmodel_evaluate_local", "description": "Local 10-dimension TrustScore (no key)." },
     { "name": "trustmodel_govern", "description": "Policy-pack allow/block gate (no key)." },
+    { "name": "trustmodel_guardrails_check", "description": "Cloud pre-execution guardrail; only literal allow may proceed." },
     { "name": "trustmodel_score", "description": "Fetch a cloud evaluation's scores." },
     { "name": "trustmodel_trace_start", "description": "Open an agentic trace session." },
     { "name": "trustmodel_trace_step", "description": "Record a trace step." },

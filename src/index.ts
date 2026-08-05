@@ -7,7 +7,7 @@
  * capabilities to any MCP-compatible AI agent (Claude Code, Cursor, Windsurf,
  * Workday agents, Eightfold AI Interviewer, etc.).
  *
- * Active tools (20):
+ * Active tools (23):
  *   No-key local tier (no TRUSTMODEL_API_KEY required):
  *     19. trustmodel_evaluate_local            — local 10-dimension TrustScore (heuristic judge)
  *     20. trustmodel_govern                    — local policy-pack allow/block gate
@@ -31,10 +31,12 @@
  *  16.  trustmodel_shadowai_results            — GET  /api/v1/shadow-ai/scans/{int}/
  *  17.  trustmodel_shadowai_events             — GET  /api/v1/shadow-ai/scans/{int}/events/
  *  18.  trustmodel_shadow_discovery_fingerprint_keys — probe OpenAI/Anthropic API keys (TRUS-1012, 848d)
+ *  21.  agentcert_issue                       — mint a verifiable AgentCert
+ *  22.  agentcert_verify                      — verify an AgentCert
+ *  23.  trustmodel_guardrails_check            — POST /sdk/v1/guardrails/check (TRUS-1326)
  *
  * Inactive (kept in src/ but not registered — backend endpoints missing):
  *   - trustmodel_evaluate_cots
- *   - trustmodel_guardrails_check
  *   - trustmodel_evaluate_mcp_server
  */
 
@@ -196,6 +198,13 @@ import {
   handleAgentCertVerify,
 } from "./tools/agentcert-verify.js";
 
+import {
+  guardrailsToolName,
+  guardrailsToolDescription,
+  guardrailsToolSchema,
+  handleGuardrails,
+} from "./tools/guardrails.js";
+
 import { creditExhaustionUpsell } from "./upsell.js";
 
 import { startEvictionTimer } from "./trace-store.js";
@@ -258,6 +267,7 @@ const DEFAULT_TOOLS = new Set<string>([
   traceStepToolName,
   traceFinalizeToolName,
   governToolName, // no key
+  guardrailsToolName,
 ]);
 
 const TRUSTMODEL_PROFILE = (process.env.TRUSTMODEL_PROFILE ?? "default").toLowerCase();
@@ -268,7 +278,7 @@ const ADVANCED_ENABLED =
 // Profile-aware registration shim. Advanced tools are skipped (never advertised
 // in tools/list) unless the profile/flag enables them; default-profile tools
 // always register. Tool implementations are unchanged — this only gates which
-// tools are exposed. All 20 server.tool(...) calls below go through this.
+// tools are exposed. All 23 server.tool(...) calls below go through this.
 const server = {
   tool(
     name: string,
@@ -676,6 +686,17 @@ server.tool(
         isError: true,
       };
     }
+  }
+);
+
+// Tool 23 — trustmodel_guardrails_check (pre-execution cloud policy gate)
+server.tool(
+  guardrailsToolName,
+  guardrailsToolDescription,
+  guardrailsToolSchema,
+  async (args) => {
+    const result = await handleGuardrails(args);
+    return { content: [{ type: "text", text: formatResult(result) }] };
   }
 );
 

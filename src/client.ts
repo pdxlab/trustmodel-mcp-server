@@ -398,3 +398,33 @@ export async function getAgentCertVerify(agent: string): Promise<unknown> {
   );
   return handleResponse(res);
 }
+
+// ── Inline guardrail (TRUS-1326) ────────────────────────────────────────────
+
+export interface GuardrailsCheckBody {
+  agent_id: string;
+  action_type: string;
+  action_payload?: Record<string, unknown>;
+  subject_id?: string;
+  policy_name?: string;
+}
+
+export interface GuardrailsCheckResponse {
+  decision: string;
+  policy_id?: string;
+  reason?: string;
+  trust_score?: number | null;
+  evidence?: Record<string, unknown>;
+  latency_ms?: number;
+}
+
+export async function postGuardrailsCheck(
+  body: GuardrailsCheckBody
+): Promise<GuardrailsCheckResponse> {
+  const res = await fetch(`${BASE_URL}/sdk/v1/guardrails/check`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  return handleResponse(res) as Promise<GuardrailsCheckResponse>;
+}
