@@ -36,7 +36,7 @@
         },
         {
           "name": "TRUSTMODEL_GUARDRAIL_FAIL_MODE",
-          "description": "Behavior when the guardrail transport fails: fail_closed (default) or fail_open.",
+          "description": "Behavior only when no HTTP response is received: fail_closed (default) or fail_open. HTTP refusals always block.",
           "isRequired": false,
           "default": "fail_closed"
         }

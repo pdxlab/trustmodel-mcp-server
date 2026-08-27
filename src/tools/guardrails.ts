@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { postGuardrailsCheck } from "../client.js";
+import { isTrustModelHttpError, postGuardrailsCheck } from "../client.js";
 
 export const guardrailsToolName = "trustmodel_guardrails_check";
 
@@ -50,7 +50,23 @@ export async function handleGuardrails(args: {
       // canonical allow value can authorize execution.
       allowed: result.decision === "allow",
     };
-  } catch {
+  } catch (error) {
+    // An HTTP response is an authoritative refusal from TrustModel, not a
+    // transport outage. It must remain blocking even when an operator has
+    // explicitly selected fail-open for network failures.
+    if (isTrustModelHttpError(error)) {
+      return {
+        decision: "refused",
+        allowed: false,
+        reason: "guardrail_http_refusal",
+        trust_score: null,
+        evidence: {
+          http_refusal: true,
+          http_status: error.status,
+        },
+      };
+    }
+
     const failOpen =
       (process.env.TRUSTMODEL_GUARDRAIL_FAIL_MODE ?? "fail_closed").toLowerCase() ===
       "fail_open";

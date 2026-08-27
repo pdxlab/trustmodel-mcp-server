@@ -6,13 +6,28 @@ process.env.TRUSTMODEL_GUARDRAIL_FAIL_MODE = "fail_closed";
 
 let nextDecision = "allow";
 let transportFailure = false;
+let httpRefusalStatus = null;
 const calls = [];
 globalThis.fetch = async (url, init = {}) => {
   if (transportFailure) throw new Error("sensitive transport detail");
   calls.push({ url: String(url), init });
+  if (httpRefusalStatus !== null) {
+    return {
+      ok: false,
+      status: httpRefusalStatus,
+      statusText: "Forbidden",
+      async json() {
+        return { detail: "sensitive refusal detail" };
+      },
+      async text() {
+        return '{"detail":"sensitive refusal detail"}';
+      },
+    };
+  }
   return {
     ok: true,
     status: 200,
+    statusText: "OK",
     async json() {
       return {
         decision: nextDecision,
@@ -78,6 +93,18 @@ process.env.TRUSTMODEL_GUARDRAIL_FAIL_MODE = "fail_open";
 result = await handleGuardrails({ agent_id: "agent-one", action_type: "test" });
 check("explicit fail-open authorizes transport failure", result.allowed === true);
 check("fail-open still returns canonical allow", result.decision === "allow");
+
+transportFailure = false;
+httpRefusalStatus = 403;
+result = await handleGuardrails({ agent_id: "agent-one", action_type: "test" });
+check("HTTP refusal blocks under fail-open", result.allowed === false);
+check("HTTP refusal is distinct from transport failure", result.decision === "refused");
+check("HTTP refusal exposes only its status", result.evidence.http_status === 403);
+check("HTTP refusal is marked as authoritative", result.evidence.http_refusal === true);
+check(
+  "HTTP refusal details are not exposed",
+  !JSON.stringify(result).includes("sensitive refusal detail"),
+);
 
 if (failures) {
   console.error(`\n${failures} guardrail contract check(s) failed`);

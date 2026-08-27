@@ -255,7 +255,9 @@ When the run was created with `frameworks`, the result text appends a per-framew
 Evaluate a proposed agent action against the organization's cloud policy before
 execution. The result includes an explicit `allowed` boolean. Only the exact
 decision `allow` sets it to `true`; deny, redact, unknown values, and transport
-failures block in the default fail-closed mode.
+failures block in the default fail-closed mode. Explicit fail-open applies only
+to failures where no HTTP response was received. HTTP refusals from TrustModel
+always block, and their evidence reports only the response status code.
 
 **Inputs:** `agent_id` and `action_type` are required. `action_payload`,
 `subject_id`, and `policy_name` are optional.

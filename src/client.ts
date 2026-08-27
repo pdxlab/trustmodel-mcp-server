@@ -35,6 +35,15 @@ export interface TrustModelError {
   detail?: unknown;
 }
 
+export function isTrustModelHttpError(error: unknown): error is TrustModelError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof error.status === "number"
+  );
+}
+
 async function handleResponse(res: Response): Promise<unknown> {
   if (!res.ok) {
     // Read the body as text exactly once — Response bodies are
