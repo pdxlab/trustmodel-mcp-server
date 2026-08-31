@@ -29,6 +29,10 @@ try {
     result.tools.some((tool) => tool.name === "trustmodel_evaluate_local"),
     "default tool profile is missing trustmodel_evaluate_local",
   );
+  assert.ok(
+    result.tools.some((tool) => tool.name === "trustmodel_guardrails_check"),
+    "default tool profile is missing trustmodel_guardrails_check",
+  );
   console.log(`MCP initialization succeeded with ${result.tools.length} default tools.`);
 } catch (error) {
   if (stderr) console.error(stderr.trim());

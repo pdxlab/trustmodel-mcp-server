@@ -88,15 +88,16 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `TRUSTMODEL_PROFILE` | No | `default` | Tool profile. `default` exposes only the daily-driver tools; `security` / `advanced` / `all` expose every tool. See **Tool profiles**. |
 | `TRUSTMODEL_ADVANCED_TOOLS` | No | `false` | Set `true` to expose all tools regardless of `TRUSTMODEL_PROFILE`. |
 | `TRUSTMODEL_AGT_DISCOVERY_ENABLED` | No | `false` | Enables the filesystem-touching Shadow Discovery tools (`trustmodel_shadow_discovery_*`). When unset, those tools return a skip report. (Only relevant when the advanced profile is on.) |
+| `TRUSTMODEL_GUARDRAIL_FAIL_MODE` | No | `fail_closed` | Transport-failure behavior for `trustmodel_guardrails_check`. Set `fail_open` only by explicit policy decision. |
 
 ## Tool profiles
 
 To stay within the 5–8 tool best-practice budget (more tools degrade an agent's tool selection), the server exposes a small **default** set and keeps advanced tools opt-in.
 
-**Default profile (6 tools)** — the daily drivers:
-`trustmodel_evaluate_local` · `trustmodel_score` · `trustmodel_trace_start` · `trustmodel_trace_step` · `trustmodel_trace_finalize` · `trustmodel_govern`
+**Default profile (7 tools)** — the daily drivers:
+`trustmodel_evaluate_local` · `trustmodel_score` · `trustmodel_trace_start` · `trustmodel_trace_step` · `trustmodel_trace_finalize` · `trustmodel_govern` · `trustmodel_guardrails_check`
 
-**Advanced** — set `TRUSTMODEL_PROFILE=security` (or `advanced` / `all`, or `TRUSTMODEL_ADVANCED_TOOLS=true`) to additionally expose: `trustmodel_evaluate` (cloud batch), `trustmodel_credits`, `trustmodel_upload_trace`, `trustmodel_evaluate_agent`, `trustmodel_score_agent`, `trustmodel_mcp_scan_server`, `trustmodel_shadow_discovery_*`, `trustmodel_redteam_*`, `trustmodel_shadowai_*`, and `agentcert_issue` / `agentcert_verify` (AgentCert) — **22 tools total**.
+**Advanced** — set `TRUSTMODEL_PROFILE=security` (or `advanced` / `all`, or `TRUSTMODEL_ADVANCED_TOOLS=true`) to additionally expose: `trustmodel_evaluate` (cloud batch), `trustmodel_credits`, `trustmodel_upload_trace`, `trustmodel_evaluate_agent`, `trustmodel_score_agent`, `trustmodel_mcp_scan_server`, `trustmodel_shadow_discovery_*`, `trustmodel_redteam_*`, `trustmodel_shadowai_*`, and `agentcert_issue` / `agentcert_verify` (AgentCert) — **23 tools total**.
 
 ```bash
 claude mcp add trustmodel --env TRUSTMODEL_PROFILE=security -- npx -y @trustmodel/mcp-server
@@ -104,7 +105,7 @@ claude mcp add trustmodel --env TRUSTMODEL_PROFILE=security -- npx -y @trustmode
 
 ## Tools
 
-The server exposes **20 tools** across seven areas. Use this table to pick the right one; full input/output docs follow below.
+The server exposes **23 tools** across eight areas. Use this table to pick the right one; full input/output docs follow below.
 
 | Tool | Group | When to use |
 |---|---|---|
@@ -118,6 +119,7 @@ The server exposes **20 tools** across seven areas. Use this table to pick the r
 | `trustmodel_evaluate_agent` | Agentic Trace | Create an agentic evaluation run against an already-uploaded trace `file_path`. |
 | `trustmodel_score_agent` | Agentic Trace | Fetch scores/grade for an agentic evaluation run. |
 | `trustmodel_mcp_scan_server` | Security | Security-scan a third-party MCP server's tool list for risky/abusable tools. |
+| `trustmodel_guardrails_check` | Guardrails | Check an action before execution; only literal `allow` proceeds. |
 | `trustmodel_shadow_discovery_scan_paths` | Shadow Discovery | Scan local filesystem paths for unregistered/shadow AI usage. |
 | `trustmodel_shadow_discovery_fingerprint_keys` | Shadow Discovery | Detect & fingerprint OpenAI/Anthropic API keys found on disk. |
 | `trustmodel_redteam_evaluate` | Red Team | Launch an adversarial red-team evaluation against a model/endpoint. |
@@ -247,6 +249,18 @@ Fetch the detail (scores, grade, summary) for an agentic evaluation run.
 When the run was created with `frameworks`, the result text appends a per-framework compliance summary (slug, status, compliance percentage, and report URL when available).
 
 ### Security
+
+#### `trustmodel_guardrails_check`
+
+Evaluate a proposed agent action against the organization's cloud policy before
+execution. The result includes an explicit `allowed` boolean. Only the exact
+decision `allow` sets it to `true`; deny, redact, unknown values, and transport
+failures block in the default fail-closed mode. Explicit fail-open applies only
+to failures where no HTTP response was received. HTTP refusals from TrustModel
+always block, and their evidence reports only the response status code.
+
+**Inputs:** `agent_id` and `action_type` are required. `action_payload`,
+`subject_id`, and `policy_name` are optional.
 
 #### `trustmodel_mcp_scan_server`
 
