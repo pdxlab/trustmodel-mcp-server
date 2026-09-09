@@ -58,7 +58,11 @@ jobs:
           node-version: "22.11.0"
 
       - name: Pack without lifecycle scripts
-        run: npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+        run: |
+          tarball_name=$(npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP" --silent)
+          tarball_path="$RUNNER_TEMP/$tarball_name"
+          test -f "$tarball_path"
+          printf 'TARBALL_PATH=%s\n' "$tarball_path" >> "$GITHUB_ENV"
 
       - name: Verify preinstall rejects Node.js 22.11
         run: |
@@ -66,7 +70,7 @@ jobs:
           cd "$RUNNER_TEMP/preinstall-check"
           npm init -y >/dev/null
           set +e
-          output=$(npm_config_engine_strict=false npm install --foreground-scripts "$RUNNER_TEMP/trustmodel-mcp-server-0.2.1.tgz" 2>&1)
+          output=$(npm_config_engine_strict=false npm install --foreground-scripts "$TARBALL_PATH" 2>&1)
           status=$?
           set -e
           printf '%s\n' "$output"
@@ -80,7 +84,7 @@ jobs:
           mkdir "$RUNNER_TEMP/startup-check"
           cd "$RUNNER_TEMP/startup-check"
           npm init -y >/dev/null
-          npm_config_engine_strict=false npm install --ignore-scripts "$RUNNER_TEMP/trustmodel-mcp-server-0.2.1.tgz"
+          npm_config_engine_strict=false npm install --ignore-scripts "$TARBALL_PATH"
           set +e
           output=$(node node_modules/@trustmodel/mcp-server/bin/trustmodel-mcp.mjs 2>&1)
           status=$?
