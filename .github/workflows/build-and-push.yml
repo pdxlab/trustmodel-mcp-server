@@ -1,0 +1,173 @@
+name: build-and-push
+
+# Container image CI for the hosted streamable-HTTP MCP server (TRUS-1712),
+# the thing behind https://mcp.trustmodel.ai. The stdio server is covered by
+# verify-runtime / verify-scanner / verify-discovery; this workflow covers the
+# Dockerfile and the hosted entrypoint only.
+#
+# TWO JOBS, DELIBERATELY SPLIT ON CREDENTIALS
+# -------------------------------------------
+#   image-build   no secrets, no OIDC. Runs on every PR and push, including
+#                 from forks. Builds the image locally and boots it to prove
+#                 /healthz and an MCP initialize handshake actually work.
+#   acr-push      needs OIDC. Only main + workflow_dispatch, because the
+#                 federated identity credential on the `github-actions-pdxlab`
+#                 AAD app is issued for the subject
+#                     repo:pdxlab/trustmodel-mcp-server:ref:refs/heads/main
+#                 A push from any other ref mints a token with a different
+#                 `sub` and Azure login returns 403. Do NOT add per-branch
+#                 FICs to work around that — merge to main.
+#
+# This workflow never deploys. Rolling an image out to the prod container app
+# is deploy-azure-prod.yml, which is manual and confirmed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-and-push-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_REPO: trustmodel-mcp
+
+jobs:
+  image-build:
+    name: docker build + boot check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (load, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE_REPO }}:ci
+          load: true
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The Dockerfile builds nothing useful if it cannot even start. This also
+      # guards the failure mode that shipped with the original port: package.json
+      # declares a preinstall hook (bin/check-node.mjs), so `npm ci` inside the
+      # image fails with MODULE_NOT_FOUND unless bin/ is COPYed ahead of it.
+      - name: Boot container and verify hosted MCP endpoint
+        run: |
+          set -euo pipefail
+          docker run -d --name mcp-ci -p 8080:8080 \
+            -e TRUSTMODEL_BASE_URL=https://api.trustmodel.ai \
+            -e MCP_ALLOWED_HOSTS=localhost:8080 \
+            -e MCP_ALLOWED_ORIGINS=https://mcp.trustmodel.ai \
+            "${IMAGE_REPO}:ci"
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/healthz >/dev/null 2>&1; then break; fi
+            if [ "$i" = "30" ]; then
+              echo "::error::container never became healthy"
+              docker logs mcp-ci
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "→ /healthz"
+          curl -fsS http://localhost:8080/healthz | tee /tmp/health.json
+          grep -q '"ok":true' /tmp/health.json
+
+          # No Authorization header on purpose. initialize is unauthenticated —
+          # the hosted server threads the caller's own Bearer per request, and only
+          # tool calls that reach the TrustModel API need one. Sending a dummy token
+          # here would put a credential-shaped literal in the repo for no added
+          # coverage, which secrets-scan correctly rejects.
+          echo "→ MCP initialize handshake"
+          code=$(curl -s -o /tmp/init.txt -D /tmp/init.hdr -w '%{http_code}' \
+            -X POST http://localhost:8080/mcp \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
+          if [ "$code" != "200" ]; then
+            echo "::error::initialize returned HTTP $code"
+            cat /tmp/init.txt; docker logs mcp-ci; exit 1
+          fi
+          grep -iq 'mcp-session-id' /tmp/init.hdr || {
+            echo "::error::no Mcp-Session-Id header on initialize"
+            cat /tmp/init.hdr; docker logs mcp-ci; exit 1
+          }
+          echo "✅ hosted MCP endpoint healthy inside the image"
+
+      - name: Container logs (always)
+        if: always()
+        run: docker logs mcp-ci 2>&1 | tail -50 || true
+
+      - name: Report image size
+        run: |
+          SIZE_MB=$(( $(docker image inspect "${IMAGE_REPO}:ci" --format '{{.Size}}') / 1024 / 1024 ))
+          echo "Image size: ${SIZE_MB}MB" >> "$GITHUB_STEP_SUMMARY"
+
+  acr-push:
+    name: push to ACR
+    needs: image-build
+    # PRs get the credential-free job only — fork PRs cannot mint an OIDC
+    # token for this tenant, and we do not want untrusted refs pushing images.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — Azure vars present
+        run: |
+          if [ -z "${{ vars.AZURE_CLIENT_ID }}" ] || [ -z "${{ vars.AZURE_TENANT_ID }}" ] || \
+             [ -z "${{ vars.AZURE_SUBSCRIPTION_ID_PROD }}" ] || [ -z "${{ vars.ACR_NAME_PROD }}" ]; then
+            echo "::error::AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID_PROD / ACR_NAME_PROD not set on this repo."
+            exit 1
+          fi
+
+      # 403 here almost always means the federated identity credential is
+      # missing for this repo's subject. See the header comment.
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID_PROD }}
+
+      - id: tag
+        run: echo "tag=main-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      # az acr build runs the build on ACR Tasks, so no local docker push and
+      # no registry password ever reaches the runner.
+      - name: Build + push to ACR
+        run: |
+          az acr build \
+            --registry "${{ vars.ACR_NAME_PROD }}" \
+            --image "${IMAGE_REPO}:${{ steps.tag.outputs.tag }}" \
+            --image "${IMAGE_REPO}:main-latest" \
+            --file Dockerfile .
+
+      - name: Summary
+        run: |
+          {
+            echo "### Image pushed"
+            echo ""
+            echo '```'
+            echo "${{ vars.ACR_NAME_PROD }}.azurecr.io/${IMAGE_REPO}:${{ steps.tag.outputs.tag }}"
+            echo '```'
+            echo ""
+            echo "This does **not** deploy. Roll it out with the \`deploy-azure-prod\` workflow."
+          } >> "$GITHUB_STEP_SUMMARY"

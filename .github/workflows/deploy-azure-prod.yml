@@ -1,0 +1,248 @@
+name: deploy-azure-prod
+
+# Deploys the hosted streamable-HTTP MCP server to the prod Azure Container App
+# behind https://mcp.trustmodel.ai.
+#
+# WHAT THIS REPLACES
+# ------------------
+# Until TRUS-1712 this was a hand-run `az acr build` + `az containerapp update`.
+# The live app ran a single revision (trustmodel-mcp--0000001, created
+# 2026-08-14) built from a personal-account repo, and the registry held exactly
+# two tags. There was no record of how prod got there. This workflow is that
+# record.
+#
+# WHY workflow_dispatch ONLY, AND ONLY FROM main
+# ----------------------------------------------
+# Azure federated identity credentials match the OIDC `sub` claim EXACTLY —
+# no wildcards. The credential for this repo is issued for
+#
+#     repo:pdxlab/trustmodel-mcp-server:ref:refs/heads/main
+#
+# A tag push mints `...:ref:refs/tags/v1.2.3`, which matches nothing and fails
+# `azure/login` with 403. Two ways to add tag-triggered deploys later, both
+# needing repo-admin:
+#   * create a GitHub environment `azure-prod` + an FIC for
+#     `repo:pdxlab/trustmodel-mcp-server:environment:azure-prod`, then add
+#     `environment: azure-prod` to the deploy job (this is the house pattern,
+#     and it also gets you required reviewers); or
+#   * add one FIC per tag ref, which does not scale.
+# Do NOT add per-branch FICs to deploy a feature branch to prod.
+#
+# PREREQUISITES (repo variables — set with `gh variable set`)
+#   AZURE_CLIENT_ID             app id of github-actions-pdxlab
+#   AZURE_TENANT_ID             tenant id
+#   AZURE_SUBSCRIPTION_ID_PROD  subscription holding rg-pdx-prod-centralus
+#   ACR_NAME_PROD               acrtmpdx23b578
+#   RESOURCE_GROUP_PROD         rg-pdx-prod-centralus
+#   ACA_NAME_PROD               trustmodel-mcp
+# Optional, to change runtime config (defaults below preserve what is live):
+#   TRUSTMODEL_BASE_URL_PROD, MCP_ALLOWED_HOSTS_PROD, MCP_ALLOWED_ORIGINS_PROD
+#
+# No API keys are set here. The hosted server authenticates every request from
+# the caller's own `Authorization: Bearer tm-…`; there is deliberately no
+# service-wide TrustModel key in the container.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy-prod" to confirm'
+        required: true
+      image_tag:
+        description: 'Existing ACR tag to roll out (leave blank to build from this ref)'
+        required: false
+
+concurrency:
+  group: deploy-azure-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  IMAGE_REPO: trustmodel-mcp
+  PROD_HOST: mcp.trustmodel.ai
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard — confirmation, ref, and prod vars
+        run: |
+          if [ "${{ inputs.confirm }}" != "deploy-prod" ]; then
+            echo "::error::You must type 'deploy-prod' in the confirm input."
+            exit 1
+          fi
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::Prod deploys run from main only (got ${{ github.ref }}). The federated credential is issued for refs/heads/main and Azure login would 403 anyway."
+            exit 1
+          fi
+          if [ -z "${{ vars.AZURE_CLIENT_ID }}" ] || [ -z "${{ vars.AZURE_TENANT_ID }}" ]; then
+            echo "::error::AZURE_CLIENT_ID / AZURE_TENANT_ID not set."; exit 1
+          fi
+          if [ -z "${{ vars.AZURE_SUBSCRIPTION_ID_PROD }}" ] || [ -z "${{ vars.ACR_NAME_PROD }}" ] || \
+             [ -z "${{ vars.RESOURCE_GROUP_PROD }}" ] || [ -z "${{ vars.ACA_NAME_PROD }}" ]; then
+            echo "::error::One or more of AZURE_SUBSCRIPTION_ID_PROD / ACR_NAME_PROD / RESOURCE_GROUP_PROD / ACA_NAME_PROD is not set."
+            exit 1
+          fi
+
+  deploy:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP_PROD }}
+      ACR_NAME: ${{ vars.ACR_NAME_PROD }}
+      ACA_NAME: ${{ vars.ACA_NAME_PROD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID_PROD }}
+
+      # Recorded before anything changes, so a bad rollout has a documented
+      # way back rather than an archaeology session.
+      - name: Capture current revision for rollback
+        id: before
+        run: |
+          set -euo pipefail
+          CUR_IMAGE=$(az containerapp show --name "$ACA_NAME" --resource-group "$RESOURCE_GROUP" \
+            --query 'properties.template.containers[0].image' -o tsv)
+          CUR_REV=$(az containerapp show --name "$ACA_NAME" --resource-group "$RESOURCE_GROUP" \
+            --query 'properties.latestReadyRevisionName' -o tsv)
+          echo "image=$CUR_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "revision=$CUR_REV" >> "$GITHUB_OUTPUT"
+          echo "Current image:    $CUR_IMAGE"
+          echo "Current revision: $CUR_REV"
+
+      - id: tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=prod-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build + push image
+        if: steps.tag.outputs.build == 'true'
+        run: |
+          az acr build \
+            --registry "$ACR_NAME" \
+            --image "${IMAGE_REPO}:${{ steps.tag.outputs.tag }}" \
+            --image "${IMAGE_REPO}:prod-latest" \
+            --file Dockerfile .
+
+      - name: Verify the tag exists before pointing prod at it
+        run: |
+          set -euo pipefail
+          az acr repository show-tags --name "$ACR_NAME" --repository "$IMAGE_REPO" -o tsv \
+            | grep -qx "${{ steps.tag.outputs.tag }}" || {
+              echo "::error::tag ${{ steps.tag.outputs.tag }} not found in $ACR_NAME/$IMAGE_REPO"
+              exit 1
+            }
+
+      # --replace-env-vars is declarative: what is listed here IS the container's
+      # environment afterwards. Anything omitted is REMOVED, so the two variables
+      # currently live on the app are both restated, defaulted to their live
+      # values so a deploy with no repo vars set is a no-op on config.
+      # MCP_ALLOWED_ORIGINS is only sent when the variable is set — the server
+      # treats "unset" as allow-all and logs a startup warning, and silently
+      # changing that during a routine deploy could break existing clients.
+      - name: Deploy to Container App
+        run: |
+          set -euo pipefail
+          BASE_URL='${{ vars.TRUSTMODEL_BASE_URL_PROD }}'
+          [ -n "$BASE_URL" ] || BASE_URL='https://api.trustmodel.ai'
+
+          ALLOWED_HOSTS='${{ vars.MCP_ALLOWED_HOSTS_PROD }}'
+          [ -n "$ALLOWED_HOSTS" ] || ALLOWED_HOSTS='mcp.trustmodel.ai,trustmodel-mcp.ashybush-84979917.centralus.azurecontainerapps.io'
+
+          ENV_ARGS=( "TRUSTMODEL_BASE_URL=$BASE_URL" "MCP_ALLOWED_HOSTS=$ALLOWED_HOSTS" )
+
+          ALLOWED_ORIGINS='${{ vars.MCP_ALLOWED_ORIGINS_PROD }}'
+          if [ -n "$ALLOWED_ORIGINS" ]; then
+            ENV_ARGS+=( "MCP_ALLOWED_ORIGINS=$ALLOWED_ORIGINS" )
+          else
+            echo "::warning::MCP_ALLOWED_ORIGINS_PROD is not set — the hosted server will allow all browser Origins and log a DNS-rebinding warning at startup."
+          fi
+
+          az containerapp update \
+            --name "$ACA_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$ACR_NAME.azurecr.io/${IMAGE_REPO}:${{ steps.tag.outputs.tag }}" \
+            --replace-env-vars "${ENV_ARGS[@]}" \
+            --output none
+
+      - name: Wait for the new revision to be healthy
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            REV=$(az containerapp show --name "$ACA_NAME" --resource-group "$RESOURCE_GROUP" \
+              --query 'properties.latestRevisionName' -o tsv)
+            STATE=$(az containerapp revision show --name "$ACA_NAME" --resource-group "$RESOURCE_GROUP" \
+              --revision "$REV" --query 'properties.provisioningState' -o tsv 2>/dev/null || echo Unknown)
+            HEALTH=$(az containerapp revision show --name "$ACA_NAME" --resource-group "$RESOURCE_GROUP" \
+              --revision "$REV" --query 'properties.healthState' -o tsv 2>/dev/null || echo Unknown)
+            echo "[$i/40] revision=$REV provisioning=$STATE health=$HEALTH"
+            if [ "$STATE" = "Provisioned" ] && [ "$HEALTH" = "Healthy" ]; then
+              echo "revision $REV is healthy"; exit 0
+            fi
+            if [ "$STATE" = "Failed" ]; then
+              echo "::error::revision $REV failed to provision"; exit 1
+            fi
+            sleep 15
+          done
+          echo "::error::revision did not become healthy in time"
+          exit 1
+
+      # Proves the public endpoint actually serves MCP after the rollout, not
+      # just that ACA reports a healthy replica.
+      - name: Post-deploy smoke test against the public endpoint
+        run: |
+          set -euo pipefail
+          echo "→ https://${PROD_HOST}/healthz"
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /tmp/h.json -w '%{http_code}' "https://${PROD_HOST}/healthz" || echo 000)
+            [ "$code" = "200" ] && break
+            echo "[$i/20] healthz -> $code"; sleep 10
+          done
+          [ "$code" = "200" ] || { echo "::error::healthz returned $code"; exit 1; }
+          cat /tmp/h.json; grep -q '"ok":true' /tmp/h.json
+
+          echo "→ MCP initialize handshake"
+          code=$(curl -s -o /tmp/i.txt -D /tmp/i.hdr -w '%{http_code}' \
+            -X POST "https://${PROD_HOST}/mcp" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"deploy-smoke","version":"1"}}}')
+          [ "$code" = "200" ] || { echo "::error::initialize returned $code"; cat /tmp/i.txt; exit 1; }
+          grep -iq 'mcp-session-id' /tmp/i.hdr || { echo "::error::no Mcp-Session-Id on initialize"; exit 1; }
+          echo "✅ public hosted MCP endpoint is serving"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Azure PROD deploy — ${{ job.status }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| App | \`$ACA_NAME\` in \`$RESOURCE_GROUP\` |"
+            echo "| Endpoint | https://${PROD_HOST} |"
+            echo "| New image | \`${IMAGE_REPO}:${{ steps.tag.outputs.tag }}\` |"
+            echo "| Previous image | \`${{ steps.before.outputs.image }}\` |"
+            echo "| Previous revision | \`${{ steps.before.outputs.revision }}\` |"
+            echo ""
+            echo "Roll back with:"
+            echo '```bash'
+            echo "az containerapp update --name '$ACA_NAME' --resource-group '$RESOURCE_GROUP' \\"
+            echo "  --image '${{ steps.before.outputs.image }}'"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -39,6 +39,7 @@ jobs:
           node scripts/verify-fingerprint.mjs
           node scripts/verify-error-envelope.mjs
           node scripts/verify-agentcert.mjs
+          node scripts/verify-guardrails.mjs
           node regression/scanner.mjs
 
       - name: Verify MCP initialization through guarded launcher
