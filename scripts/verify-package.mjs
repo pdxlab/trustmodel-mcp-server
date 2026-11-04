@@ -44,5 +44,14 @@ const canonicalRepo = "https://github.com/pdxlab/trustmodel-mcp-server";
 assert.equal(serverJson.repository.url, canonicalRepo);
 assert.equal(packageJson.repository.url, `git+${canonicalRepo}.git`);
 assert.equal(manifest.repository.url, canonicalRepo);
+// The repository's numeric id ties the listing to this repo, not to whatever
+// repo next holds the pdxlab/trustmodel-mcp-server name.
+assert.equal(serverJson.repository.id, "1187674238", "server.json repository.id must be this repo's GitHub id");
+// The registry rejects a description over 100 characters (422), and that
+// rejection would land after npm publish, which cannot be undone.
+assert.ok(
+  [...serverJson.description].length <= 100,
+  `server.json description is ${[...serverJson.description].length} characters; the MCP Registry allows 100`,
+);
 
 console.log(`npm package contains ${packedFiles.size} files and all entrypoints are guarded.`);
