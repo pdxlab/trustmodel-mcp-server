@@ -249,7 +249,7 @@ function formatError(err: unknown): string {
 // ── Server setup ───────────────────────────────────────────────────────────────
 
 // TRUS-2460: report the published version in the MCP handshake. It was a
-// hard-coded "0.1.0" through 0.2.2. Read at runtime (dist/index.js → ../package.json)
+// hard-coded "0.1.0" in every release through 0.2.1. Read at runtime (dist/index.js → ../package.json)
 // because tsconfig's rootDir is src/; package.json is always in the npm tarball.
 const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../package.json") as {
   version: string;

@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const packResult = JSON.parse(execFileSync(
   "npm",
@@ -18,6 +18,22 @@ for (const requiredFile of [
   "package.json",
 ]) {
   assert.ok(packedFiles.has(requiredFile), `${requiredFile} is missing from the npm tarball`);
+}
+
+// TRUS-2460: dist/ and *.js are git-ignored, and tsc never deletes old output,
+// so a clean `git status` can still pack leftovers from another branch into a
+// tarball that cannot be unpublished. Every packed bin/ file must be tracked,
+// and every packed dist/ file must come from a src/*.ts that exists.
+const trackedBin = new Set(
+  execFileSync("git", ["ls-files", "bin"], { encoding: "utf8" }).split("\n").filter(Boolean),
+);
+for (const file of packedFiles) {
+  if (file.startsWith("bin/")) {
+    assert.ok(trackedBin.has(file), `${file} is packed but not tracked in git`);
+  } else if (file.startsWith("dist/")) {
+    const source = file.replace(/^dist\//, "src/").replace(/(\.d)?\.(js|ts)(\.map)?$/, ".ts");
+    assert.ok(source !== file && existsSync(source), `${file} is packed but ${source} does not exist`);
+  }
 }
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
@@ -44,6 +60,8 @@ const canonicalRepo = "https://github.com/pdxlab/trustmodel-mcp-server";
 assert.equal(serverJson.repository.url, canonicalRepo);
 assert.equal(packageJson.repository.url, `git+${canonicalRepo}.git`);
 assert.equal(manifest.repository.url, canonicalRepo);
+assert.equal(packageJson.bugs.url, `${canonicalRepo}/issues`);
+assert.equal(manifest.documentation, canonicalRepo);
 // The repository's numeric id ties the listing to this repo, not to whatever
 // repo next holds the pdxlab/trustmodel-mcp-server name.
 assert.equal(serverJson.repository.id, "1187674238", "server.json repository.id must be this repo's GitHub id");

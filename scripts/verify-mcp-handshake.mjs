@@ -25,7 +25,7 @@ try {
   await client.connect(transport);
 
   // TRUS-2460: directories that run the server show this version, so it must be
-  // the published one, not a hard-coded constant (it said 0.1.0 through 0.2.2).
+  // the published one, not a hard-coded constant (every release through 0.2.1 said 0.1.0).
   const { version: packageVersion } = JSON.parse(
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
   );
