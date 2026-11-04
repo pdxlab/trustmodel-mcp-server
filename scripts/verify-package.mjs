@@ -34,4 +34,15 @@ assert.equal(manifest.version, packageJson.version);
 assert.equal(serverJson.version, packageJson.version);
 assert.equal(serverJson.packages[0].version, packageJson.version);
 
+// TRUS-2460: the MCP Registry accepts a publish only when the npm package's
+// mcpName equals server.json's name, and only from a GitHub identity that owns
+// the name's namespace. io.github.pdxlab is what this repo's CI can prove.
+assert.equal(packageJson.mcpName, serverJson.name, "package.json mcpName must equal server.json name");
+assert.match(serverJson.name, /^io\.github\.pdxlab\//, "server.json name must be in the io.github.pdxlab namespace");
+assert.equal(serverJson.packages[0].identifier, packageJson.name);
+const canonicalRepo = "https://github.com/pdxlab/trustmodel-mcp-server";
+assert.equal(serverJson.repository.url, canonicalRepo);
+assert.equal(packageJson.repository.url, `git+${canonicalRepo}.git`);
+assert.equal(manifest.repository.url, canonicalRepo);
+
 console.log(`npm package contains ${packedFiles.size} files and all entrypoints are guarded.`);

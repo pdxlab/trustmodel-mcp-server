@@ -12,7 +12,7 @@ Works with Claude Code, Cursor, Windsurf, Claude Desktop, and any other MCP-comp
 ## One-click install
 
 - **VS Code / Cursor** — click the badges above (they deep-link the `npx -y @trustmodel/mcp-server` config).
-- **Claude Desktop** — download `trustmodel.mcpb` from [Releases](https://github.com/karlmehta/trustmodel-mcp/releases) and drag it into Settings → Extensions (no JSON editing). Build it locally with `./scripts/build-mcpb.sh`.
+- **Claude Desktop** — download `trustmodel.mcpb` from [Releases](https://github.com/pdxlab/trustmodel-mcp-server/releases) and drag it into Settings → Extensions (no JSON editing). Build it locally with `./scripts/build-mcpb.sh`.
 - **Aggregators** — also listed on [Smithery](https://smithery.ai/server/@trustmodel/mcp-server) and [Glama](https://glama.ai/mcp/servers) (`smithery.yaml` / `glama.json` in this repo).
 
 ## Requirements

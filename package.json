@@ -2,15 +2,15 @@
   "name": "@trustmodel/mcp-server",
   "version": "0.2.2",
   "description": "TrustModel MCP Server — trust evaluation for AI agents via Model Context Protocol",
-  "mcpName": "io.github.karlmehta/trustmodel-mcp",
+  "mcpName": "io.github.pdxlab/trustmodel-mcp",
   "type": "module",
   "homepage": "https://trustmodel.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/karlmehta/trustmodel-mcp.git"
+    "url": "git+https://github.com/pdxlab/trustmodel-mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/karlmehta/trustmodel-mcp/issues"
+    "url": "https://github.com/pdxlab/trustmodel-mcp-server/issues"
   },
   "author": "Karl Mehta",
   "bin": {
