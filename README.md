@@ -538,7 +538,8 @@ Reports, evaluation history, and detailed PDF/HTML findings are available in the
 
 This MCP server is part of the TrustModel OSS toolkit:
 
-- **CLI + SDK** — [`trustmodel`](https://github.com/karlmehta/trustmodel) on PyPI: local trust scoring, governance, and the cloud client. `pip install trustmodel`.
+- **Python SDK + CLI** — [`trustmodel`](https://pypi.org/project/trustmodel/) on PyPI: the official client for the TrustModel platform. `pip install trustmodel`.
+- **Local scoring** — [`trustmodel-local`](https://pypi.org/project/trustmodel-local/) on PyPI: trust scoring and governance on your machine, no API key.
 - **MCP server (this repo)** — `@trustmodel/mcp-server` on npm: exposes TrustModel to any MCP client.
 
 ## License
