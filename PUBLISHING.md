@@ -1,52 +1,132 @@
 # Publishing the TrustModel MCP server
 
-This repo is the public canonical home of the npm package `@trustmodel/mcp-server`
-and its listing in the official MCP Registry under the GitHub-OAuth namespace
-`io.github.karlmehta/*`. **No DNS / no Cloudflare** is involved.
+This repo is the canonical home of the npm package `@trustmodel/mcp-server` and
+of its listing in the official MCP Registry, `io.github.pdxlab/trustmodel-mcp`.
 
-The `mcpName` field in `package.json` and the `name` in `server.json` must match
-exactly (`io.github.karlmehta/trustmodel-mcp`) — that's how the registry verifies
-the npm package and the registry entry are the same owned server.
+## Identity: three fields that must agree
 
-## 1. Publish the npm package
+| Field | Value |
+|---|---|
+| `package.json` `name` / `server.json` `packages[0].identifier` | `@trustmodel/mcp-server` |
+| `package.json` `mcpName` / `server.json` `name` | `io.github.pdxlab/trustmodel-mcp` |
+| `package.json` `version` / `server.json` `version` + `packages[0].version` / `manifest.json` `version` | the release version |
 
-Requires npm auth for the `@trustmodel` org (`npm login`).
+The registry accepts a publish only when the npm package's `mcpName` equals
+`server.json`'s `name`, and only from a GitHub identity that owns the name's
+namespace. `io.github.pdxlab/*` can be published by:
+
+- an **Owner** of the `pdxlab` GitHub org, by hand (`mcp-publisher login github`).
+  Plain org members are refused.
+- **any** GitHub Actions workflow run in **any** `pdxlab` repo, on any branch
+  (`mcp-publisher login github-oidc`). The registry grants `io.github.<owner>/*`
+  from the token's repository owner alone; it does not check the repo, branch,
+  workflow or environment. The Owner-only rule above covers the manual path only.
+
+`npm run verify:package` checks that the fields above agree, that the name is in
+the `io.github.pdxlab` namespace, that the repository, bugs and documentation
+links and the repository id point at this repo, that the description fits the
+registry's 100-character limit, and that every packed `bin/` file is tracked in
+git and every packed `dist/` file has a `src/` source. It cannot check who is
+allowed to publish.
+
+Access to the `@trustmodel` npm org does **not** grant registry access; they are
+separate systems.
+
+## How a release happens
+
+Releases are meant to come from a `vX.Y.Z` tag on `main`, through a release
+workflow that publishes to npm (Trusted Publishing, no token) and then to the
+MCP Registry (`mcp-publisher login github-oidc`). That workflow is a follow-up
+under TRUS-2460 and does not exist yet.
+
+Until it does, a release can be published by hand. This section is removed by
+the pull request that adds the release workflow.
+
+Before starting:
+
+- a `pdxlab` org Owner other than the person publishing approves the release in a
+  comment on its Jira ticket, naming the version and the full commit SHA on
+  `main`. Only that commit is published;
+- the publisher is a `pdxlab` org Owner with publish rights on
+  `@trustmodel/mcp-server`;
+- `mcp-publisher` is a pinned release from github.com/modelcontextprotocol/registry
+  whose signature has been checked (needs `cosign`; example for v1.8.7 on Apple
+  silicon):
+
+  ```bash
+  V=v1.8.7; F=mcp-publisher_darwin_arm64.tar.gz
+  gh release download "$V" -R modelcontextprotocol/registry -p "$F" -p "$F.sigstore.json"
+  cosign verify-blob --bundle "$F.sigstore.json" \
+    --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/$V" \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    "$F"
+  tar -xzf "$F" mcp-publisher
+  MCP_PUBLISHER="$PWD/mcp-publisher"   # the release block runs this binary, not one on PATH
+  ```
+
+Publish from a fresh clone, never a working checkout: `dist/` and `*.js` are
+git-ignored, so a checkout that looks clean can still hold build output from
+another branch, and `npm publish` would ship it. Every check runs **before**
+`npm publish`, because an npm version cannot be republished and the registry
+publish only works once npm has the version. Paste the block as a whole, in the
+shell where `MCP_PUBLISHER` was set above: it runs in a subshell with
+`set -euo pipefail`, so the first failing step stops it before anything is
+published, and `cd` does not leave your own shell in the clone. The registry
+login runs before `npm publish`, so the one step that cannot be undone comes
+after every interactive step has succeeded:
 
 ```bash
+(
+set -euo pipefail
+SHA=<full commit SHA from the approval>; VERSION=<version from the approval>
+test -x "$MCP_PUBLISHER"              # the cosign-verified binary from above
+d=$(mktemp -d)
+git clone git@github.com:pdxlab/trustmodel-mcp-server.git "$d"
+cd "$d"
+git merge-base --is-ancestor "$SHA" origin/main   # the approved commit is on main
+git switch --detach "$SHA"
+test "$(node -p 'require("./package.json").version')" = "$VERSION"
 npm ci
-npm run build
-npm run verify:package
-npm publish --access public        # publishes @trustmodel/mcp-server@0.2.2
+npm test
+npm run verify:mcp-handshake          # the server reports package.json's version
+npm run verify:package                # identity fields and what the tarball ships
+"$MCP_PUBLISHER" validate             # server.json against its $schema
+"$MCP_PUBLISHER" login github         # as a pdxlab org Owner
+
+npm publish --access public
+"$MCP_PUBLISHER" publish              # reads ./server.json
+)
 ```
 
-Verify: `npm view @trustmodel/mcp-server version` → `0.2.2`, and the package page
-shows the `mcpName` and `repository`/`homepage` links.
-
-## 2. Publish to the official MCP Registry
-
-Requires the registry CLI and a GitHub login for the namespace.
+Verify that npm and the registry show the same version, and that the listing
+points at this package and repo. The two `version` lines must match:
 
 ```bash
-# Install the publisher CLI (see github.com/modelcontextprotocol/registry)
-#   e.g. via Go:  go install github.com/modelcontextprotocol/registry/cmd/mcp-publisher@latest
-#   or download a release binary and put it on PATH.
-
-mcp-publisher login github          # interactive GitHub OAuth → verifies io.github.karlmehta
-mcp-publisher publish               # reads ./server.json
+npm view @trustmodel/mcp-server dist-tags.latest
+curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=trustmodel-mcp" \
+  | jq '.servers[]
+        | select(.server.name == "io.github.pdxlab/trustmodel-mcp" and ._meta["io.modelcontextprotocol.registry/official"].isLatest)
+        | {version: .server.version,
+           package: .server.packages[0].identifier,
+           repo: .server.repository.url}'
 ```
 
-Verify: the registry v0 servers search endpoint returns the entry, e.g.
+If `mcp-publisher validate` reports that the schema has moved on, update
+`server.json` in a pull request first.
+
+## Previous listing
+
+Releases up to 0.2.0 were listed as `io.github.karlmehta/trustmodel-mcp`. Only
+that GitHub account can change it; once `io.github.pdxlab/trustmodel-mcp` is
+live, it is deprecated with:
 
 ```bash
-curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=trustmodel" | jq '.servers[].name'
+mcp-publisher status --status deprecated --all-versions \
+  --message "Moved to io.github.pdxlab/trustmodel-mcp" io.github.karlmehta/trustmodel-mcp
 ```
-
-`server.json` is validated against the schema at publish time. If the schema has
-moved on, regenerate with `mcp-publisher init` and re-apply the values above.
 
 ## Notes
-- PulseMCP and the GitHub MCP Registry auto-syndicate from the official registry —
-  no separate submission needed for those once step 2 lands.
-- The Python MCP server (PyPI `trustmodel`, server name
-  `io.github.karlmehta/trustmodel-mcp-py`) publishes from the `karlmehta/trustmodel`
-  repo — see its `server.json` + `PUBLISHING.md`.
+- PulseMCP and the GitHub MCP Registry auto-syndicate from the official
+  registry; no separate submission is needed once the registry publish lands.
+- This file covers only the npm package. The MCP Registry has no Python
+  TrustModel server listed.

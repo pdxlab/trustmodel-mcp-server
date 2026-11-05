@@ -1,11 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.karlmehta/trustmodel-mcp",
-  "description": "Trust evaluation, red-team, and governance for AI agents — local no-key TrustScore + governance and calibrated cloud scoring, via the Model Context Protocol.",
+  "name": "io.github.pdxlab/trustmodel-mcp",
+  "description": "Score any AI for trust across 10 dimensions; evaluate, monitor & govern LLMs and agents.",
   "version": "0.2.2",
   "repository": {
-    "url": "https://github.com/karlmehta/trustmodel-mcp",
-    "source": "github"
+    "url": "https://github.com/pdxlab/trustmodel-mcp-server",
+    "source": "github",
+    "id": "1187674238"
   },
   "packages": [
     {
