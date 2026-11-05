@@ -66,7 +66,10 @@ assert.equal(manifest.documentation, canonicalRepo);
 // repo next holds the pdxlab/trustmodel-mcp-server name.
 assert.equal(serverJson.repository.id, "1187674238", "server.json repository.id must be this repo's GitHub id");
 // The registry rejects a description over 100 characters (422), and that
-// rejection would land after npm publish, which cannot be undone.
+// rejection would land after npm publish, which cannot be undone. The registry
+// counts code points (JSON Schema maxLength), and so does [...s]. s.length
+// counts UTF-16 code units, which over-counts emoji and other astral
+// characters and would reject descriptions the registry accepts.
 assert.ok(
   [...serverJson.description].length <= 100,
   `server.json description is ${[...serverJson.description].length} characters; the MCP Registry allows 100`,

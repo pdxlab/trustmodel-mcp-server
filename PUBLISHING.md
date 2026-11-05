@@ -63,11 +63,18 @@ Publish from a fresh clone, never a working checkout: `dist/` and `*.js` are
 git-ignored, so a checkout that looks clean can still hold build output from
 another branch, and `npm publish` would ship it. Every check runs **before**
 `npm publish`, because an npm version cannot be republished and the registry
-publish only works once npm has the version:
+publish only works once npm has the version. Paste the block as a whole: it
+runs in a subshell with `set -euo pipefail`, so the first failing step stops it
+before anything is published, and `cd` does not leave your own shell in the
+clone:
 
 ```bash
+(
+set -euo pipefail
 SHA=<full commit SHA from the approval>; VERSION=<version from the approval>
-d=$(mktemp -d) && git clone git@github.com:pdxlab/trustmodel-mcp-server.git "$d" && cd "$d"
+d=$(mktemp -d)
+git clone git@github.com:pdxlab/trustmodel-mcp-server.git "$d"
+cd "$d"
 git merge-base --is-ancestor "$SHA" origin/main   # the approved commit is on main
 git switch --detach "$SHA"
 test "$(node -p 'require("./package.json").version')" = "$VERSION"
@@ -80,6 +87,7 @@ mcp-publisher validate                # server.json against its $schema
 npm publish --access public
 mcp-publisher login github            # as a pdxlab org Owner
 mcp-publisher publish                 # reads ./server.json
+)
 ```
 
 Verify that npm and the registry show the same version, and that the listing
