@@ -17,7 +17,10 @@ namespace. `io.github.pdxlab/*` can be published by:
 
 - an **Owner** of the `pdxlab` GitHub org, by hand (`mcp-publisher login github`).
   Plain org members are refused.
-- a GitHub Actions workflow running in a `pdxlab` repo (`mcp-publisher login github-oidc`).
+- **any** GitHub Actions workflow run in **any** `pdxlab` repo, on any branch
+  (`mcp-publisher login github-oidc`). The registry grants `io.github.<owner>/*`
+  from the token's repository owner alone; it does not check the repo, branch,
+  workflow or environment. The Owner-only rule above covers the manual path only.
 
 `npm run verify:package` checks that the fields above agree, that the name is in
 the `io.github.pdxlab` namespace, that the repository, bugs and documentation
@@ -57,21 +60,26 @@ Before starting:
     --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/$V" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     "$F"
+  tar -xzf "$F" mcp-publisher
+  MCP_PUBLISHER="$PWD/mcp-publisher"   # the release block runs this binary, not one on PATH
   ```
 
 Publish from a fresh clone, never a working checkout: `dist/` and `*.js` are
 git-ignored, so a checkout that looks clean can still hold build output from
 another branch, and `npm publish` would ship it. Every check runs **before**
 `npm publish`, because an npm version cannot be republished and the registry
-publish only works once npm has the version. Paste the block as a whole: it
-runs in a subshell with `set -euo pipefail`, so the first failing step stops it
-before anything is published, and `cd` does not leave your own shell in the
-clone:
+publish only works once npm has the version. Paste the block as a whole, in the
+shell where `MCP_PUBLISHER` was set above: it runs in a subshell with
+`set -euo pipefail`, so the first failing step stops it before anything is
+published, and `cd` does not leave your own shell in the clone. The registry
+login runs before `npm publish`, so the one step that cannot be undone comes
+after every interactive step has succeeded:
 
 ```bash
 (
 set -euo pipefail
 SHA=<full commit SHA from the approval>; VERSION=<version from the approval>
+test -x "$MCP_PUBLISHER"              # the cosign-verified binary from above
 d=$(mktemp -d)
 git clone git@github.com:pdxlab/trustmodel-mcp-server.git "$d"
 cd "$d"
@@ -82,11 +90,11 @@ npm ci
 npm test
 npm run verify:mcp-handshake          # the server reports package.json's version
 npm run verify:package                # identity fields and what the tarball ships
-mcp-publisher validate                # server.json against its $schema
+"$MCP_PUBLISHER" validate             # server.json against its $schema
+"$MCP_PUBLISHER" login github         # as a pdxlab org Owner
 
 npm publish --access public
-mcp-publisher login github            # as a pdxlab org Owner
-mcp-publisher publish                 # reads ./server.json
+"$MCP_PUBLISHER" publish              # reads ./server.json
 )
 ```
 
