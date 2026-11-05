@@ -34,21 +34,50 @@ separate systems.
 
 ## How a release happens
 
-Releases are meant to come from a `vX.Y.Z` tag on `main`, through a release
-workflow that publishes to npm (Trusted Publishing, no token) and then to the
-MCP Registry (`mcp-publisher login github-oidc`). That workflow is a follow-up
-under TRUS-2460 and does not exist yet.
+A release comes from a `vX.Y.Z` tag on `main`. `.github/workflows/release.yml`
+publishes to npm (Trusted Publishing, no token, with a provenance attestation),
+then to the MCP Registry (`mcp-publisher login github-oidc`), then creates the
+GitHub Release. Nobody publishes from a laptop.
 
-Until it does, a release can be published by hand. This section is removed by
-the pull request that adds the release workflow.
+1. **Release PR.** Ticket `TRUS-<n>: release @trustmodel/mcp-server X.Y.Z`,
+   branch `TRUS-<n>-release-X.Y.Z`. Set the version in all four places from the
+   identity table above: `package.json` (`npm version X.Y.Z --no-git-tag-version`
+   also updates `package-lock.json`), `server.json` `version` and
+   `packages[0].version`, and `manifest.json`. `npm run verify:package` fails if
+   they disagree.
+2. **Review and merge** to `main`.
+3. **A repository admin tags the merge commit.** Only admins can push `v*` tags.
+   ```bash
+   git switch main && git pull --ff-only
+   git tag -a vX.Y.Z -m "@trustmodel/mcp-server X.Y.Z" && git push origin vX.Y.Z
+   ```
+4. **Watch the Release run** in the Actions tab: `verify` → `checksum` →
+   `publish` → `publish-registry` → `github-release`. The run stops before
+   publishing if the tag differs from any version field, the commit is not on
+   `main`, or any test or verify script fails.
+5. **Check the result** with the commands at the end of this section. On npm,
+   `_npmUser` should be GitHub Actions.
+
+If a run fails after npm or the registry accepted the version, **re-run the
+failed jobs**. Both publish jobs skip a version that already holds this
+release's bytes, so a re-run never publishes twice. Never move a tag that has
+published; fix forward with a new patch version.
+
+### Emergency manual release
+
+Use this only when the tag release **cannot run** (for example, GitHub Actions
+or npm Trusted Publishing is down) and the release cannot wait for it. It skips
+the tag ruleset and the `npm` environment, and the npm version it publishes has
+no provenance attestation. Do not use it to finish a run that already published
+to npm; re-run the failed jobs instead.
 
 Before starting:
 
 - a `pdxlab` org Owner other than the person publishing approves the release in a
-  comment on its Jira ticket, naming the version and the full commit SHA on
-  `main`. Only that commit is published;
+  comment on its Jira ticket, naming the version, the full commit SHA on `main`,
+  and why the tag release cannot be used. Only that commit is published;
 - the publisher is a `pdxlab` org Owner with publish rights on
-  `@trustmodel/mcp-server`;
+  `@trustmodel/mcp-server` and npm two-factor authentication;
 - `mcp-publisher` is a pinned release from github.com/modelcontextprotocol/registry
   whose signature has been checked (needs `cosign`; example for v1.8.7 on Apple
   silicon):
@@ -98,8 +127,14 @@ npm publish --access public
 )
 ```
 
-Verify that npm and the registry show the same version, and that the listing
-points at this package and repo. The two `version` lines must match:
+Afterwards, comment on the Jira ticket with the version and the output of the
+check below, and fix whatever stopped the tag release before the next one.
+
+### Check a release
+
+Whichever path published it, npm and the registry must show the same version,
+and the listing must point at this package and repo. The two `version` lines
+must match:
 
 ```bash
 npm view @trustmodel/mcp-server dist-tags.latest
