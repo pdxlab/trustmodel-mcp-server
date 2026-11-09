@@ -23,5 +23,5 @@ What's in this repo and what still needs a human click.
 Suggested entry:
 
 ```markdown
-- [TrustModel](https://github.com/karlmehta/trustmodel-mcp) — Trust evaluation, red-team & governance for AI agents. Local no-key TrustScore across 10 dimensions + policy-pack governance; calibrated cloud scoring with a free key.
+- [TrustModel](https://github.com/pdxlab/trustmodel-mcp-server) — Trust evaluation, red-team & governance for AI agents. Local no-key TrustScore across 10 dimensions + policy-pack governance; calibrated cloud scoring with a free key.
 ```
