@@ -6,8 +6,11 @@ import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not .pathname: .pathname keeps %20, so a checkout path with a
+// space made every test fail with ENOENT.
+const root = fileURLToPath(new URL("..", import.meta.url));
 const release = join(root, "scripts/release");
 const workflow = readFileSync(join(root, ".github/workflows/release.yml"), "utf8");
 
@@ -312,14 +315,82 @@ test("release.yml: every action is pinned to a full commit SHA", () => {
   for (const ref of uses) assert.match(ref, /@[0-9a-f]{40}$/, ref);
 });
 
-test("release.yml: jobs holding an OIDC token run no dependency code", () => {
-  const jobs = workflow.split(/^  (?=[a-z-]+:\s*$)/m);
-  const tokenJobs = jobs.filter((job) => /id-token:\s*write/.test(job));
-  assert.deepEqual(tokenJobs.map((job) => job.split(":")[0]).sort(), ["publish", "publish-registry"]);
-  for (const job of tokenJobs) {
-    assert.doesNotMatch(job, /npm (ci|install|run|test)\b/, job.split(":")[0]);
-    if (job.includes("actions/setup-node")) assert.match(job, /package-manager-cache: false/);
+// The text of each job under `jobs:`, keyed by job id.
+const jobs = (() => {
+  const body = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
+  const map = {};
+  for (const chunk of body.split(/^  (?=[a-z-]+:\s*$)/m)) {
+    const id = /^([a-z-]+):/.exec(chunk)?.[1];
+    if (id) map[id] = chunk;
   }
+  return map;
+})();
+
+test("release.yml: jobs holding an OIDC token run no dependency code", () => {
+  const tokenJobs = Object.keys(jobs).filter((id) => /id-token:\s*write/.test(jobs[id]));
+  assert.deepEqual(tokenJobs.sort(), ["publish", "publish-registry"]);
+  for (const id of tokenJobs) {
+    const job = jobs[id];
+    assert.doesNotMatch(job, /\bnpm (ci|install|i|run|test|exec|x)\b|\bnpx\b|\bpnpm\b|\byarn\b|\bcorepack\b/, id);
+    if (job.includes("actions/setup-node")) assert.match(job, /package-manager-cache: false/, id);
+    // Cone mode would also check out every root file, including .npmrc, which npm reads.
+    const checkouts = job.split("actions/checkout@").slice(1).map((rest) => rest.split(/\n      - /)[0]);
+    assert.ok(checkouts.length > 0, id);
+    for (const checkout of checkouts) {
+      assert.match(checkout, /\n {10}sparse-checkout: /, id);
+      assert.match(checkout, /^ {10}sparse-checkout-cone-mode: false$/m, id);
+    }
+  }
+});
+
+// The controls below are what make a release reviewed and tag-gated (SOC 2 CC8.1).
+// Each assertion fails if the control is deleted or weakened in a later change.
+
+test("release.yml: runs only on a pushed vX.Y.Z-shaped tag", () => {
+  const on = workflow.slice(workflow.indexOf("\non:\n") + 1, workflow.indexOf("\npermissions:\n"));
+  assert.equal(on.trim(), 'on:\n  push:\n    tags: ["v*.*.*"]');
+});
+
+test("release.yml: the default token is read-only; only github-release may write contents", () => {
+  assert.match(workflow, /^permissions:\n  contents: read\n\n/m);
+  const writers = Object.keys(jobs).filter((id) => /contents:\s*write/.test(jobs[id]));
+  assert.deepEqual(writers, ["github-release"]);
+});
+
+test("release.yml: jobs run in order verify -> checksum -> publish -> publish-registry -> github-release", () => {
+  const needs = Object.fromEntries(Object.entries(jobs).map(([id, job]) => [id, /^    needs: (\S+)$/m.exec(job)?.[1]]));
+  assert.deepEqual(needs, {
+    verify: undefined,
+    checksum: "verify",
+    publish: "checksum",
+    "publish-registry": "publish",
+    "github-release": "publish-registry",
+  });
+});
+
+test("release.yml: verify refuses a tag whose commit is not on main", () => {
+  assert.match(jobs.verify, /git fetch origin main\n\s+if ! git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main; then\n[^\n]*\n\s+exit 1/);
+  assert.match(jobs.verify, /node scripts\/release\/check-tag\.mjs "\$GITHUB_REF_NAME"/);
+});
+
+test("release.yml: publish runs in the npm environment", () => {
+  assert.match(jobs.publish, /^    environment: npm$/m);
+});
+
+test("release.yml: publish checks the tarball's sha256 before anything reads it", () => {
+  const job = jobs.publish;
+  const download = job.indexOf("actions/download-artifact@");
+  const check = job.indexOf("| sha256sum -c -");
+  assert.ok(download > 0 && check > download, "sha256sum -c after the download");
+  assert.match(job, /EXPECTED: \$\{\{ needs\.checksum\.outputs\.sha256 \}\}/);
+  for (const reader of ["tar -xOzf", "npm-state.sh", "npm-publish.sh"]) {
+    assert.ok(job.indexOf(reader) > check, `${reader} runs after the sha256 check`);
+  }
+});
+
+test("release.yml: publish fails unless npm shows a SLSA provenance attestation", () => {
+  assert.match(jobs.publish, /dist\.attestations\.provenance\.predicateType/);
+  assert.match(jobs.publish, /if \[ "\$predicate" != "https:\/\/slsa\.dev\/provenance\/v1" \]; then\n[^\n]*\n\s+exit 1/);
 });
 
 test("release scripts are executable", () => {

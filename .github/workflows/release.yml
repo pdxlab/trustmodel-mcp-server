@@ -9,8 +9,10 @@ name: Release
 # - Tag ruleset `release-tags`: only repository admins can create, move or delete v* tags.
 # - Environment `npm`: deployments only from v* tags, so a workflow edited on a branch
 #   can't get the OIDC token npm accepts.
-# - The checksum job: publish checks the tarball's sha256 against the one recorded
-#   right after verify, so nothing that runs later can change what is published.
+# - The checksum job: publish refuses any tarball whose sha256 differs from the one
+#   recorded right after verify, so no later job can swap the bytes. It does not vouch
+#   for the build: verify runs npm ci and the tests (dependency code) before npm pack,
+#   so the lockfile and code review are what protect the tarball's contents.
 # - The verify job: the tag must be on main (which needs a code-owner review) and
 #   match every version field, and tests and verify scripts must pass on every
 #   supported Node.
@@ -21,8 +23,10 @@ name: Release
 # github_oidc.go). The environment gates npm only. See PUBLISHING.md.
 #
 # Jobs that hold an OIDC token check out only scripts/release (and server.json):
-# shell scripts from this tagged commit, no npm ci, no dependency code. The logic
-# lives in scripts/ so tests/release-scripts.test.mjs can test it.
+# shell scripts from this tagged commit, no npm ci, no dependency code. Their sparse
+# checkouts are non-cone: cone mode also brings every root file, including .npmrc,
+# which npm publish would read. The logic lives in scripts/ so
+# tests/release-scripts.test.mjs can test it, including the controls listed above.
 
 on:
   push:
@@ -97,6 +101,7 @@ jobs:
 
   # Records the tarball's sha256 right after verify. A job output is set by this
   # job's own runner, so no later job can change it; publish refuses any other bytes.
+  # It pins what verify uploaded; it says nothing about how verify built it.
   checksum:
     needs: verify
     runs-on: ubuntu-latest
@@ -122,6 +127,7 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/release
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"

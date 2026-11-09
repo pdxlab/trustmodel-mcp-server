@@ -6,6 +6,9 @@
 #   stdout "same",   exit 0   entry exists and points at our package and repo
 #   exit 2                    entry exists but points elsewhere
 #   exit 1                    anything else (network, 5xx, unreadable body)
+#
+# The entry's status (active, deprecated, deleted) is not checked: deprecating a
+# version is a pdxlab Owner's deliberate act, and a re-run must not fight it.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
