@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # TRUS-2500: what the MCP Registry holds for <name>@<version>, compared with what
-# this release publishes: the npm package it points at and this repo's GitHub id.
+# this release publishes: exactly one package, on npm, our identifier at this same
+# version, and this repo's GitHub id. Clients install packages[0] at its own
+# version, so an entry whose package version differs is not this release.
 #
 #   stdout "absent", exit 0   registry answered 404
-#   stdout "same",   exit 0   entry exists and points at our package and repo
+#   stdout "same",   exit 0   entry exists and points at our package, version and repo
 #   exit 2                    entry exists but points elsewhere
 #   exit 1                    anything else (network, 5xx, unreadable body)
 #
@@ -41,12 +43,12 @@ case "$status" in
 esac
 
 # An entry with no name or version is unreadable (exit 1). Once it has those, a
-# missing package or repository id counts as pointing elsewhere (exit 2).
-if ! found=$(jq -er '.server | select(.name and .version) | [.name, .version, .packages[0].identifier, .repository.id] | map(. // "") | join(" ")' "$body" 2>/dev/null); then
+# missing package field or repository id counts as pointing elsewhere (exit 2).
+if ! found=$(jq -er '.server | select(.name and .version) | [.name, .version, (.packages | length), .packages[0].registryType, .packages[0].identifier, .packages[0].version, .repository.id] | map(. // "" | tostring) | join(" ")' "$body" 2>/dev/null); then
   echo "::error::$url returned a body without the expected fields" >&2
   exit 1
 fi
-want="$name $version $identifier $repo_id"
+want="$name $version 1 npm $identifier $version $repo_id"
 if [ "$found" = "$want" ]; then
   echo same
   exit 0

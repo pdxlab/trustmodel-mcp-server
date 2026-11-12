@@ -214,8 +214,8 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: server.json matches the tag
         run: |
-          found="$(jq -r '[.name, .version, .packages[0].version, .packages[0].identifier, .repository.id] | join(" ")' server.json)"
-          want="$SERVER_NAME ${GITHUB_REF_NAME#v} ${GITHUB_REF_NAME#v} $PACKAGE $REPOSITORY_ID"
+          found="$(jq -r '[.name, .version, (.packages | length), .packages[0].registryType, .packages[0].identifier, .packages[0].version, .repository.id] | map(. // "" | tostring) | join(" ")' server.json)"
+          want="$SERVER_NAME ${GITHUB_REF_NAME#v} 1 npm $PACKAGE ${GITHUB_REF_NAME#v} $REPOSITORY_ID"
           if [ "$found" != "$want" ]; then
             echo "::error::server.json has [$found], expected [$want]"
             exit 1
@@ -256,7 +256,23 @@ jobs:
       contents: write
     steps:
       # Runs only after npm and the registry both show this version.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/release
+          sparse-checkout-cone-mode: false
+      # A re-run must not fail because an earlier attempt created the release but
+      # lost the response. Only a 404 allows a create; a lookup error fails the job.
+      - name: Already released?
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state="$(scripts/release/github-release-state.sh "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME")"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
       - name: Create GitHub Release
+        if: steps.existing.outputs.state == 'absent'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

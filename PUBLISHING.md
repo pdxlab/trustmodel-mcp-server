@@ -60,7 +60,8 @@ GitHub Release. Nobody publishes from a laptop.
 
 If a run fails after npm or the registry accepted the version, **re-run the
 failed jobs**. Both publish jobs skip a version that already holds this
-release's bytes, so a re-run never publishes twice. Never move a tag that has
+release's bytes, and `github-release` skips a tag that already has its release,
+so a re-run never publishes twice. Never move a tag that has
 published; fix forward with a new patch version.
 
 ### Emergency manual release
@@ -133,8 +134,8 @@ check below, and fix whatever stopped the tag release before the next one.
 ### Check a release
 
 Whichever path published it, npm and the registry must show the same version,
-and the listing must point at this package and repo. The two `version` lines
-must match:
+and the listing must point at this package, at that same version, and at this
+repo. All three versions must match:
 
 ```bash
 npm view @trustmodel/mcp-server dist-tags.latest
@@ -143,6 +144,7 @@ curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=trustmodel-m
         | select(.server.name == "io.github.pdxlab/trustmodel-mcp" and ._meta["io.modelcontextprotocol.registry/official"].isLatest)
         | {version: .server.version,
            package: .server.packages[0].identifier,
+           package_version: .server.packages[0].version,
            repo: .server.repository.url}'
 ```
 

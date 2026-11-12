@@ -197,7 +197,7 @@ const entry = (overrides = {}) =>
     server: {
       name: NAME,
       version: "0.2.3",
-      packages: [{ identifier: PKG }],
+      packages: [{ registryType: "npm", identifier: PKG, version: "0.2.3" }],
       repository: { id: REPO_ID },
       ...overrides,
     },
@@ -230,12 +230,89 @@ test("registry-state: an entry pointing at another package or repo exits 2", () 
   }
 });
 
+// bjain-tm on #60: listing 0.2.3 pointing at @trustmodel/mcp-server 0.1.0 was "same",
+// so the workflow skipped the registry publish and clients installed the old version.
+test("registry-state: a package at another version, on another registry, or a second package exits 2", () => {
+  const pkg = { registryType: "npm", identifier: PKG, version: "0.2.3" };
+  for (const packages of [
+    [{ ...pkg, version: "0.1.0" }],
+    [{ ...pkg, version: undefined }],
+    [{ ...pkg, registryType: "pypi" }],
+    [{ ...pkg, registryType: undefined }],
+    [pkg, { ...pkg, identifier: "@evil/pkg" }],
+    [],
+  ]) {
+    const r = registry({ STUB_STATUS: "200", STUB_BODY: entry({ packages }) });
+    assert.equal(r.status, 2, JSON.stringify(packages));
+    assert.equal(r.stdout, "");
+  }
+});
+
 test("registry-state: 5xx, unreachable, or an unreadable body is an error, not 'absent'", () => {
   for (const env of [{ STUB_STATUS: "503" }, { STUB_RC: "6" }, { STUB_STATUS: "200", STUB_BODY: "<html>" }, { STUB_STATUS: "200", STUB_BODY: "{}" }]) {
     const r = registry(env);
     assert.equal(r.status, 1, JSON.stringify(env));
     assert.equal(r.stdout, "");
   }
+});
+
+// ---------- github-release-state.sh ----------
+
+const TOKEN = "ghs_stubtoken000000000000000000000000";
+const ghReleaseBody = (fields = {}) =>
+  JSON.stringify({ tag_name: "v0.2.3", draft: false, prerelease: false, ...fields });
+const ghRelease = (env) =>
+  run("github-release-state.sh", ["pdxlab/trustmodel-mcp-server", "v0.2.3"], {
+    stubs: { curl: curlStub },
+    env: { GH_TOKEN: TOKEN, ...env },
+  });
+
+test("github-release-state: asks for the release by tag, without the token in curl's arguments", () => {
+  const r = ghRelease({ STUB_STATUS: "404" });
+  assert.match(r.log, /\/repos\/pdxlab\/trustmodel-mcp-server\/releases\/tags\/v0\.2\.3/);
+  assert.doesNotMatch(r.log, new RegExp(TOKEN));
+  assert.match(r.log, /--header @-/);
+});
+
+test("github-release-state: 404 is 'absent'", () => {
+  const r = ghRelease({ STUB_STATUS: "404" });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "absent");
+});
+
+test("github-release-state: an existing published release for the tag is 'same'", () => {
+  const r = ghRelease({ STUB_STATUS: "200", STUB_BODY: ghReleaseBody() });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "same");
+});
+
+test("github-release-state: a release for another tag, a draft or a prerelease exits 2", () => {
+  for (const fields of [{ tag_name: "v0.2.2" }, { draft: true }, { prerelease: true }]) {
+    const r = ghRelease({ STUB_STATUS: "200", STUB_BODY: ghReleaseBody(fields) });
+    assert.equal(r.status, 2, JSON.stringify(fields));
+    assert.equal(r.stdout, "");
+  }
+});
+
+test("github-release-state: auth errors, 5xx, unreachable or an unreadable body never allow a create", () => {
+  for (const env of [
+    { STUB_STATUS: "401" },
+    { STUB_STATUS: "403" },
+    { STUB_STATUS: "500" },
+    { STUB_RC: "6" },
+    { STUB_STATUS: "200", STUB_BODY: "<html>" },
+    { STUB_STATUS: "200", STUB_BODY: "{}" },
+  ]) {
+    const r = ghRelease(env);
+    assert.equal(r.status, 1, JSON.stringify(env));
+    assert.equal(r.stdout, "");
+  }
+});
+
+test("github-release-state: a missing GH_TOKEN fails before any request", () => {
+  const r = ghRelease({ GH_TOKEN: "", STUB_STATUS: "404" });
+  assert.equal(r.status, 1);
+  assert.equal(r.log, "");
 });
 
 // ---------- wait-for.sh ----------
@@ -393,8 +470,22 @@ test("release.yml: publish fails unless npm shows a SLSA provenance attestation"
   assert.match(jobs.publish, /if \[ "\$predicate" != "https:\/\/slsa\.dev\/provenance\/v1" \]; then\n[^\n]*\n\s+exit 1/);
 });
 
+test("release.yml: server.json must list one npm package at the tag's version", () => {
+  assert.match(jobs["publish-registry"], /\(\.packages \| length\), \.packages\[0\]\.registryType, \.packages\[0\]\.identifier, \.packages\[0\]\.version/);
+  assert.match(jobs["publish-registry"], /want="\$SERVER_NAME \$\{GITHUB_REF_NAME#v\} 1 npm \$PACKAGE \$\{GITHUB_REF_NAME#v\} \$REPOSITORY_ID"/);
+});
+
+test("release.yml: github-release creates a release only when none exists for the tag", () => {
+  const job = jobs["github-release"];
+  const lookup = job.indexOf("scripts/release/github-release-state.sh");
+  const create = job.indexOf("gh release create");
+  assert.ok(lookup > 0 && create > lookup, "lookup before create");
+  assert.match(job.slice(lookup, create), /if: steps\.existing\.outputs\.state == 'absent'\n/);
+  assert.match(job, /^ {10}sparse-checkout-cone-mode: false$/m);
+});
+
 test("release scripts are executable", () => {
-  for (const script of ["npm-state.sh", "npm-publish.sh", "registry-state.sh", "wait-for.sh"]) {
+  for (const script of ["npm-state.sh", "npm-publish.sh", "registry-state.sh", "github-release-state.sh", "wait-for.sh"]) {
     assert.ok(statSync(join(release, script)).mode & 0o111, script);
   }
 });
