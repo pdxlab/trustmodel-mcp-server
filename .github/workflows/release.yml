@@ -49,6 +49,7 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       matrix:
         # 22.12.0 is the `engines` floor in package.json; keep in step with verify-runtime.yml.
@@ -105,6 +106,7 @@ jobs:
   checksum:
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       sha256: ${{ steps.sum.outputs.sha256 }}
     steps:
@@ -118,6 +120,7 @@ jobs:
   publish:
     needs: checksum
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: npm
     permissions:
       contents: read
@@ -195,12 +198,22 @@ jobs:
             echo "::error::$PACKAGE@$VERSION has no SLSA provenance attestation on npm (got '$predicate')"
             exit 1
           fi
+      # Any provenance is not enough: it must name this repo, this workflow, this tag
+      # and this commit, so the release evidence says who built the package.
+      - name: Provenance names this repo, workflow, tag and commit
+        env:
+          VERSION: ${{ steps.tarball.outputs.version }}
+        run: |
+          scripts/release/wait-for.sh 300 scripts/release/provenance-check.sh \
+            "$PACKAGE" "$VERSION" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" .github/workflows/release.yml "$GITHUB_REF" "$GITHUB_SHA"
+          echo "provenance: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY .github/workflows/release.yml $GITHUB_REF $GITHUB_SHA"
 
   # Runs only once npm shows our bytes: the registry checks npm for the version
   # and its mcpName before it accepts the entry.
   publish-registry:
     needs: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write # OIDC token for mcp-publisher login github-oidc
@@ -252,6 +265,7 @@ jobs:
   github-release:
     needs: publish-registry
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:

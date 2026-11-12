@@ -1,8 +1,8 @@
-// TRUS-2500: branch protection on main requires CI checks by name. GitHub names
-// a check after its job id (plus the matrix values), so two PR workflows with the
-// same job id produce two checks with one name, and a required check by that name
-// passes when either one does. A renamed job leaves its required check waiting
-// forever, which blocks every PR. These tests catch both before merge.
+// TRUS-2500: branch protection on main requires CI checks by name. GitHub names a
+// check after the job's `name:` if it has one, otherwise after its job id (matrix
+// jobs add " (<values>)"). Two pull-request jobs with the same check name make a
+// required check pass when either one does. A required check that no job produces
+// any more leaves every PR waiting forever. These tests catch both before merge.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,48 +12,98 @@ import { fileURLToPath } from "node:url";
 const dir = fileURLToPath(new URL("../.github/workflows", import.meta.url));
 
 // Must match Settings → Branches → main → required status checks (runbook S5).
-// Matrix jobs report as "<job id> (<value>)", so only the job id is listed here.
-const REQUIRED_JOB_IDS = [
-  "gitleaks",
-  "supported-runtimes",
-  "unsupported-runtime",
-  "verify-discovery",
-  "verify-scanner",
-];
+// Matrix jobs are listed by their base name.
+const REQUIRED_CHECKS = ["gitleaks", "supported-runtimes", "unsupported-runtime", "verify-discovery", "verify-scanner"];
 
-// Job ids are the two-space-indented keys under the top-level `jobs:` block.
-function jobIds(text) {
+// Does the workflow's `on:` run it for pull requests? Handles the block form
+// (`on:\n  pull_request:`), the flow form (`on: [pull_request, push]`) and the
+// scalar form (`on: pull_request`).
+export function runsOnPullRequests(text) {
+  const on = /^on:(.*(?:\n(?:[ \t].*|\s*))*)/m.exec(text)?.[1] ?? "";
+  return /\bpull_request(_target)?\b/.test(on);
+}
+
+// [{ id, check }] for each job under the top-level `jobs:` block. `check` is the
+// job's own `name:` (four-space indent, directly under the job), else its id.
+export function jobChecks(text) {
   const body = text.split(/^jobs:\s*$/m)[1] ?? "";
-  return [...body.matchAll(/^ {2}([A-Za-z0-9_-]+):\s*$/gm)].map((m) => m[1]);
+  return body
+    .split(/^(?= {2}[A-Za-z0-9_-]+:\s*$)/m)
+    .map((chunk) => {
+      const id = /^ {2}([A-Za-z0-9_-]+):\s*$/m.exec(chunk)?.[1];
+      if (!id) return null;
+      const name = /^ {4}name:\s*(.+?)\s*$/m.exec(chunk)?.[1]?.replace(/^(["'])(.*)\1$/, "$2");
+      return { id, check: name ?? id };
+    })
+    .filter(Boolean);
 }
 
-function prWorkflows() {
-  return readdirSync(dir)
-    .filter((f) => /\.ya?ml$/.test(f))
-    .map((f) => ({ file: f, text: readFileSync(join(dir, f), "utf8") }))
-    .filter(({ text }) => /^\s{2}pull_request:/m.test(text));
-}
-
-test("ci: no job sets a display name, so the check name is the job id", () => {
-  for (const { file, text } of prWorkflows()) {
-    const body = text.split(/^jobs:\s*$/m)[1] ?? "";
-    assert.doesNotMatch(body, /^ {4}name:/m, `${file} sets a job-level name:`);
-  }
-});
-
-test("ci: every job that runs on pull requests has a unique check name", () => {
+// Every problem with a set of workflows, as readable strings.
+export function problems(workflows, required = REQUIRED_CHECKS) {
+  const errors = [];
   const seen = new Map();
-  for (const { file, text } of prWorkflows()) {
-    for (const id of jobIds(text)) {
-      assert.ok(!seen.has(id), `job "${id}" is in both ${seen.get(id)} and ${file}`);
-      seen.set(id, file);
+  for (const { file, text } of workflows.filter(({ text }) => runsOnPullRequests(text))) {
+    for (const { id, check } of jobChecks(text)) {
+      if (seen.has(check)) errors.push(`check "${check}" comes from both ${seen.get(check)} and ${file} (job ${id})`);
+      else seen.set(check, `${file} (job ${id})`);
     }
   }
+  for (const name of required) {
+    if (!seen.has(name)) errors.push(`required check "${name}" is not produced by any pull_request job`);
+  }
+  return errors;
+}
+
+const repoWorkflows = () =>
+  readdirSync(dir)
+    .filter((f) => /\.ya?ml$/.test(f))
+    .map((f) => ({ file: f, text: readFileSync(join(dir, f), "utf8") }));
+
+test("ci: this repo's pull-request checks are unique and include every required check", () => {
+  assert.deepEqual(problems(repoWorkflows()), []);
 });
 
-test("ci: every check main requires is produced by a pull-request workflow", () => {
-  const ids = new Set(prWorkflows().flatMap(({ text }) => jobIds(text)));
-  for (const id of REQUIRED_JOB_IDS) {
-    assert.ok(ids.has(id), `required check "${id}" has no pull_request job`);
-  }
+// Fixtures: the rules themselves, so a weakened rule fails here rather than passing quietly.
+const wf = (file, on, jobs) => ({ file, text: `name: ${file}\n${on}\njobs:\n${jobs}` });
+const PR = "on:\n  pull_request:\n  push:\n    branches: [main]\n";
+const REQ = ["a"];
+
+test("ci: a job display name is fine while check names stay unique (#49's build-and-push)", () => {
+  const workflows = [
+    wf("a.yml", PR, "  a:\n    runs-on: ubuntu-latest\n"),
+    wf("b.yml", PR, "  image-build:\n    name: docker build + boot check\n    runs-on: ubuntu-latest\n    steps:\n      - name: step\n"),
+  ];
+  assert.deepEqual(problems(workflows, REQ), []);
+});
+
+test("ci: a display name that repeats another job's id is a duplicate check", () => {
+  const workflows = [wf("a.yml", PR, "  a:\n    runs-on: ubuntu-latest\n"), wf("b.yml", PR, "  other:\n    name: a\n")];
+  assert.equal(problems(workflows, REQ).length, 1);
+});
+
+test("ci: the same job id in two pull-request workflows is a duplicate check", () => {
+  const workflows = [wf("a.yml", PR, "  a:\n    runs-on: x\n"), wf("b.yml", PR, "  a:\n    runs-on: x\n")];
+  assert.equal(problems(workflows, REQ).length, 1);
+});
+
+test("ci: a step's name: or an action input called name is not a job display name", () => {
+  const [job] = jobChecks(
+    "jobs:\n  a:\n    steps:\n      - name: not-a-check\n        uses: actions/upload-artifact@x\n        with:\n          name: package\n",
+  );
+  assert.deepEqual(job, { id: "a", check: "a" });
+});
+
+test("ci: the flow and scalar forms of on: count as pull-request workflows", () => {
+  assert.ok(runsOnPullRequests("on: [pull_request, push]\njobs:\n"));
+  assert.ok(runsOnPullRequests("on: pull_request\njobs:\n"));
+  assert.ok(!runsOnPullRequests('on:\n  push:\n    tags: ["v*.*.*"]\njobs:\n  pull_request:\n'));
+});
+
+test("ci: a required check nobody produces is reported", () => {
+  assert.equal(problems([wf("a.yml", PR, "  b:\n    runs-on: x\n")], REQ).length, 1);
+});
+
+test("ci: tag-only workflows (release.yml) don't count towards pull-request checks", () => {
+  const workflows = [wf("a.yml", PR, "  a:\n    runs-on: x\n"), wf("release.yml", 'on:\n  push:\n    tags: ["v*.*.*"]\n', "  a:\n    runs-on: x\n")];
+  assert.deepEqual(problems(workflows, REQ), []);
 });

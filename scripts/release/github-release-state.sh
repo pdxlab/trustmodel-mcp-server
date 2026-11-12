@@ -4,12 +4,16 @@
 # its response) doesn't fail on "already exists".
 #
 #   stdout "absent", exit 0   GitHub answered 404: no published release for the tag
-#   stdout "same",   exit 0   a published, non-draft, non-prerelease release for the tag
-#   exit 2                    a release exists for the tag but isn't one this job makes
+#   stdout "same",   exit 0   a published, non-prerelease release for the tag
+#   exit 2                    the release for the tag is a prerelease, or names another tag
 #   exit 1                    anything else (network, 401/403, 5xx, unreadable body)
 #
-# Only a 404 allows a create. Reads GH_TOKEN from the environment and hands it to
-# curl on stdin, so it never appears in the process list.
+# This endpoint returns published releases only: a draft for the tag reads as 404,
+# and the job then creates a published release beside it. The draft check below is
+# defence in depth, not draft handling. Only a 404 allows a create.
+#
+# Reads GH_TOKEN from the environment and hands it to curl on stdin, so it never
+# appears in the process list.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then

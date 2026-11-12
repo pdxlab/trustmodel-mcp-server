@@ -286,6 +286,8 @@ test("github-release-state: an existing published release for the tag is 'same'"
   assert.equal(r.stdout, "same");
 });
 
+// GET /releases/tags/{tag} never returns a draft (a draft reads as 404); the draft
+// case here is defence in depth in case that ever changes.
 test("github-release-state: a release for another tag, a draft or a prerelease exits 2", () => {
   for (const fields of [{ tag_name: "v0.2.2" }, { draft: true }, { prerelease: true }]) {
     const r = ghRelease({ STUB_STATUS: "200", STUB_BODY: ghReleaseBody(fields) });
@@ -313,6 +315,85 @@ test("github-release-state: a missing GH_TOKEN fails before any request", () => 
   const r = ghRelease({ GH_TOKEN: "", STUB_STATUS: "404" });
   assert.equal(r.status, 1);
   assert.equal(r.log, "");
+});
+
+// ---------- provenance-check.sh ----------
+
+const REPO_URL = "https://github.com/pdxlab/trustmodel-mcp-server";
+const WORKFLOW = ".github/workflows/release.yml";
+const REF = "refs/tags/v0.2.3";
+const slsa = (overrides = {}) => {
+  const workflow = { repository: REPO_URL, path: WORKFLOW, ref: REF, ...overrides.workflow };
+  const statement = {
+    predicateType: "https://slsa.dev/provenance/v1",
+    predicate: {
+      buildDefinition: {
+        externalParameters: { workflow },
+        resolvedDependencies: [{ digest: { gitCommit: overrides.commit ?? SHA } }],
+      },
+    },
+  };
+  return {
+    predicateType: "https://slsa.dev/provenance/v1",
+    bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(statement)).toString("base64") } },
+  };
+};
+const publishAttestation = { predicateType: "https://github.com/npm/attestation/tree/main/specs/publish/v0.1", bundle: {} };
+const attestations = (...items) => JSON.stringify({ attestations: items });
+const provenance = (env) =>
+  run("provenance-check.sh", [PKG, "0.2.3", REPO_URL, WORKFLOW, REF, SHA], { stubs: { curl: curlStub }, env });
+
+test("provenance-check: asks npm for this package version's attestations", () => {
+  const r = provenance({ STUB_STATUS: "404" });
+  assert.match(r.log, /\/-\/npm\/v1\/attestations\/@trustmodel\/mcp-server@0\.2\.3/);
+});
+
+test("provenance-check: 404 is 'absent' (not visible yet)", () => {
+  const r = provenance({ STUB_STATUS: "404" });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "absent");
+});
+
+test("provenance-check: our repo, workflow, tag and commit is 'same', beside npm's publish attestation", () => {
+  const r = provenance({ STUB_STATUS: "200", STUB_BODY: attestations(publishAttestation, slsa()) });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, "same");
+});
+
+test("provenance-check: another repo, workflow, ref or commit exits 2 and names what it found", () => {
+  for (const overrides of [
+    { workflow: { repository: "https://github.com/pdxlab/other" } },
+    { workflow: { path: ".github/workflows/evil.yml" } },
+    { workflow: { ref: "refs/heads/main" } },
+    { commit: "0000000000000000000000000000000000000000" },
+  ]) {
+    const r = provenance({ STUB_STATUS: "200", STUB_BODY: attestations(slsa(overrides)) });
+    assert.equal(r.status, 2, JSON.stringify(overrides));
+    assert.equal(r.stdout, "");
+    assert.match(r.stderr, /provenance is \[/);
+  }
+});
+
+test("provenance-check: no SLSA provenance, or two of them, exits 2", () => {
+  for (const body of [attestations(publishAttestation), attestations(slsa(), slsa())]) {
+    const r = provenance({ STUB_STATUS: "200", STUB_BODY: body });
+    assert.equal(r.status, 2, body.slice(0, 80));
+  }
+});
+
+test("provenance-check: 5xx, unreachable or an unreadable body is an error, not 'absent'", () => {
+  const badPayload = attestations({ predicateType: "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload: "%%%" } } });
+  for (const env of [
+    { STUB_STATUS: "503" },
+    { STUB_RC: "6" },
+    { STUB_STATUS: "200", STUB_BODY: "<html>" },
+    { STUB_STATUS: "200", STUB_BODY: "{}" },
+    { STUB_STATUS: "200", STUB_BODY: badPayload },
+  ]) {
+    const r = provenance(env);
+    assert.equal(r.status, 1, JSON.stringify(env).slice(0, 80));
+    assert.equal(r.stdout, "");
+  }
 });
 
 // ---------- wait-for.sh ----------
@@ -484,8 +565,23 @@ test("release.yml: github-release creates a release only when none exists for th
   assert.match(job, /^ {10}sparse-checkout-cone-mode: false$/m);
 });
 
+test("release.yml: publish requires provenance naming this repo, release.yml, the tag and the commit", () => {
+  const job = jobs.publish;
+  const wait = job.indexOf("scripts/release/wait-for.sh 600 scripts/release/npm-state.sh");
+  const check = job.indexOf("scripts/release/wait-for.sh 300 scripts/release/provenance-check.sh");
+  assert.ok(wait > 0 && check > wait, "provenance check after npm shows the version");
+  assert.match(
+    job.slice(check),
+    /^\s+"\$PACKAGE" "\$VERSION" "\$GITHUB_SERVER_URL\/\$GITHUB_REPOSITORY" \.github\/workflows\/release\.yml "\$GITHUB_REF" "\$GITHUB_SHA"$/m,
+  );
+});
+
+test("release.yml: every job has a timeout", () => {
+  for (const [id, job] of Object.entries(jobs)) assert.match(job, /^    timeout-minutes: \d+$/m, id);
+});
+
 test("release scripts are executable", () => {
-  for (const script of ["npm-state.sh", "npm-publish.sh", "registry-state.sh", "github-release-state.sh", "wait-for.sh"]) {
+  for (const script of ["npm-state.sh", "npm-publish.sh", "registry-state.sh", "github-release-state.sh", "provenance-check.sh", "wait-for.sh"]) {
     assert.ok(statSync(join(release, script)).mode & 0o111, script);
   }
 });
