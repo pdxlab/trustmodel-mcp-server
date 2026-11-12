@@ -54,6 +54,28 @@ export function problems(workflows, required = REQUIRED_CHECKS) {
   return errors;
 }
 
+// Workflows that produce a check main requires: what gates every merge must not change
+// under us. Every action they use is pinned to a full commit SHA, and no step pipes a
+// download straight into tar or a shell.
+export function gateWorkflows(workflows, required = REQUIRED_CHECKS) {
+  return workflows.filter(
+    ({ text }) => runsOnPullRequests(text) && jobChecks(text).some(({ check }) => required.includes(check)),
+  );
+}
+
+export function gateProblems(workflows, required = REQUIRED_CHECKS) {
+  const errors = [];
+  for (const { file, text } of gateWorkflows(workflows, required)) {
+    for (const [, ref] of text.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)) {
+      if (!ref.startsWith("./") && !/@[0-9a-f]{40}$/.test(ref)) errors.push(`${file}: ${ref} is not pinned to a commit SHA`);
+    }
+    if (/\bcurl\b[^\n]*(?:\\\n[^\n]*)*\|\s*(?:sudo\s+)?(?:tar|sh|bash)\b/.test(text)) {
+      errors.push(`${file}: pipes a download straight into tar or a shell`);
+    }
+  }
+  return errors;
+}
+
 const repoWorkflows = () =>
   readdirSync(dir)
     .filter((f) => /\.ya?ml$/.test(f))
@@ -61,6 +83,18 @@ const repoWorkflows = () =>
 
 test("ci: this repo's pull-request checks are unique and include every required check", () => {
   assert.deepEqual(problems(repoWorkflows()), []);
+});
+
+test("ci: workflows behind required checks pin every action and verify what they download", () => {
+  assert.deepEqual(gateProblems(repoWorkflows()), []);
+});
+
+test("ci: the gitleaks gate checks the binary's sha256 before extracting it", () => {
+  const text = readFileSync(join(dir, "secrets-scan.yml"), "utf8");
+  const check = text.indexOf("| sha256sum -c -");
+  const extract = text.indexOf("tar -xzf");
+  assert.ok(check > 0 && extract > check, "sha256sum -c before tar");
+  assert.match(text, /GITLEAKS_SHA256: [0-9a-f]{64}\n/);
 });
 
 // Fixtures: the rules themselves, so a weakened rule fails here rather than passing quietly.
@@ -101,6 +135,17 @@ test("ci: the flow and scalar forms of on: count as pull-request workflows", () 
 
 test("ci: a required check nobody produces is reported", () => {
   assert.equal(problems([wf("a.yml", PR, "  b:\n    runs-on: x\n")], REQ).length, 1);
+});
+
+test("ci: a gate workflow with a tag-pinned action or a curl | tar is reported; a non-gate one is not", () => {
+  const gate = (body) => wf("a.yml", PR, `  a:\n    runs-on: x\n    steps:\n${body}`);
+  const pinned = "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0\n";
+  assert.deepEqual(gateProblems([gate(pinned)], REQ), []);
+  assert.equal(gateProblems([gate("      - uses: actions/checkout@v4\n")], REQ).length, 1);
+  assert.equal(gateProblems([gate('      - run: |\n          curl -sSL "https://x/y.tgz" \\\n            | sudo tar -xz -C /usr/local/bin y\n')], REQ).length, 1);
+  assert.equal(gateProblems([gate("      - run: curl -sSL https://x/i.sh | bash\n")], REQ).length, 1);
+  // #49's build-and-push.yml: on pull_request, but produces no required check.
+  assert.deepEqual(gateProblems([gate(pinned), wf("b.yml", PR, "  image-build:\n    name: docker build\n    steps:\n      - uses: actions/checkout@v4\n")], REQ), []);
 });
 
 test("ci: tag-only workflows (release.yml) don't count towards pull-request checks", () => {
