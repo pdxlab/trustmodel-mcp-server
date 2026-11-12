@@ -1,0 +1,292 @@
+name: Release
+
+# TRUS-2500: publishes @trustmodel/mcp-server to npm, then io.github.pdxlab/trustmodel-mcp
+# to the MCP Registry, when a vX.Y.Z tag is pushed. No npm token and no registry
+# secret: npm trusts this workflow + the `npm` environment (Trusted Publishing), and
+# the registry trusts any GitHub Actions OIDC token from the pdxlab org.
+#
+# Who can release is decided on GitHub, so these must all stay in place:
+# - Tag ruleset `release-tags`: only repository admins can create, move or delete v* tags.
+# - Environment `npm`: deployments only from v* tags, so a workflow edited on a branch
+#   can't get the OIDC token npm accepts.
+# - The checksum job: publish refuses any tarball whose sha256 differs from the one
+#   recorded right after verify, so no later job can swap the bytes. It does not vouch
+#   for the build: verify runs npm ci and the tests (dependency code) before npm pack,
+#   so the lockfile and code review are what protect the tarball's contents.
+# - The verify job: the tag must be on main (which needs a code-owner review) and
+#   match every version field, and tests and verify scripts must pass on every
+#   supported Node.
+# - npm Trusted Publisher: pdxlab/trustmodel-mcp-server, release.yml, environment npm.
+#
+# The registry grants io.github.pdxlab/* to an OIDC token from ANY pdxlab repo and
+# branch; it does not check repo, workflow or environment (registry v1.8.7,
+# github_oidc.go). The environment gates npm only. See PUBLISHING.md.
+#
+# Jobs that hold an OIDC token check out only scripts/release (and server.json):
+# shell scripts from this tagged commit, no npm ci, no dependency code. Their sparse
+# checkouts are non-cone: cone mode also brings every root file, including .npmrc,
+# which npm publish would read. The logic lives in scripts/ so
+# tests/release-scripts.test.mjs can test it, including the controls listed above.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  PACKAGE: "@trustmodel/mcp-server"
+  SERVER_NAME: io.github.pdxlab/trustmodel-mcp
+  REPOSITORY_ID: "1187674238"
+  # mcp-publisher release to install; its Sigstore bundle is checked before use.
+  MCP_PUBLISHER_VERSION: v1.8.7
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        # 22.12.0 is the `engines` floor in package.json; keep in step with verify-runtime.yml.
+        node-version: ["22.12.0", "24"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          package-manager-cache: false # never restore a cache into a release build
+      - name: Tag matches every version field
+        run: node scripts/release/check-tag.mjs "$GITHUB_REF_NAME"
+      - name: Tagged commit is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME points at a commit that is not on main"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm test
+      - name: Offline verification scripts
+        run: |
+          node scripts/verify-scanner.mjs
+          node scripts/verify-shadow-discovery.mjs
+          node scripts/verify-fingerprint.mjs
+          node scripts/verify-error-envelope.mjs
+          node scripts/verify-agentcert.mjs
+          node regression/scanner.mjs
+      - run: npm run verify:mcp-handshake
+      - run: npm run verify:package
+      # The tarball is built and tested here, then published as-is by the publish job,
+      # so the job that holds the OIDC token never installs or runs dependency code.
+      # npm pack doesn't create --pack-destination, so make it first.
+      - name: Pack
+        if: matrix.node-version == '24'
+        run: |
+          mkdir -p "$RUNNER_TEMP/package"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/package"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.node-version == '24'
+        with:
+          name: package
+          path: ${{ runner.temp }}/package/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  # Records the tarball's sha256 right after verify. A job output is set by this
+  # job's own runner, so no later job can change it; publish refuses any other bytes.
+  # It pins what verify uploaded; it says nothing about how verify built it.
+  checksum:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: package
+      - id: sum
+        run: echo "sha256=$(sha256sum package/trustmodel-mcp-server-"${GITHUB_REF_NAME#v}".tgz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: checksum
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm Trusted Publishing and the provenance attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/release
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: npm supports Trusted Publishing
+        # OIDC publishing needs npm >= 11.5.1.
+        run: |
+          node -e '
+            const [maj, min, patch] = process.argv[1].split(".").map(Number);
+            if (maj < 11 || (maj === 11 && (min < 5 || (min === 5 && patch < 1)))) {
+              console.error(`::error::npm ${process.argv[1]} is older than 11.5.1`);
+              process.exit(1);
+            }' "$(npm --version)"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: package
+      # First, before anything reads the tarball: it must be the exact bytes recorded
+      # by the checksum job. An empty EXPECTED fails sha256sum -c, so a missing output stops here.
+      - name: Tarball is the one verify built
+        env:
+          EXPECTED: ${{ needs.checksum.outputs.sha256 }}
+        run: echo "$EXPECTED  package/trustmodel-mcp-server-${GITHUB_REF_NAME#v}.tgz" | sha256sum -c -
+      - name: Tarball matches the tag
+        id: tarball
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tarball="package/trustmodel-mcp-server-$version.tgz"
+          packed="$(tar -xOzf "$tarball" package/package.json | node -p 'const p = JSON.parse(require("fs").readFileSync(0)); `${p.name}@${p.version} ${p.mcpName}`')"
+          if [ "$packed" != "$PACKAGE@$version $SERVER_NAME" ]; then
+            echo "::error::$tarball contains [$packed], expected [$PACKAGE@$version $SERVER_NAME]"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "shasum=$(sha1sum "$tarball" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      # A re-run after a publish that succeeded skips the publish if npm already has
+      # these exact bytes. Only npm's E404 counts as "not published" (TRUS-2495).
+      - name: Already on npm?
+        id: existing
+        env:
+          VERSION: ${{ steps.tarball.outputs.version }}
+          SHASUM: ${{ steps.tarball.outputs.shasum }}
+        # Assign first: inside `echo "state=$(...)"` a failing script would be ignored.
+        run: |
+          state="$(scripts/release/npm-state.sh "$PACKAGE" "$VERSION" "$SHASUM")"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+      - name: Publish
+        if: steps.existing.outputs.state == 'absent'
+        env:
+          TARBALL: ${{ steps.tarball.outputs.tarball }}
+        run: scripts/release/npm-publish.sh "$TARBALL"
+      - name: Published version is on npm
+        env:
+          VERSION: ${{ steps.tarball.outputs.version }}
+          SHASUM: ${{ steps.tarball.outputs.shasum }}
+        run: scripts/release/wait-for.sh 600 scripts/release/npm-state.sh "$PACKAGE" "$VERSION" "$SHASUM"
+      - name: Published version has a provenance attestation
+        env:
+          VERSION: ${{ steps.tarball.outputs.version }}
+        run: |
+          predicate="$(npm view "$PACKAGE@$VERSION" dist.attestations.provenance.predicateType --prefer-online)"
+          if [ "$predicate" != "https://slsa.dev/provenance/v1" ]; then
+            echo "::error::$PACKAGE@$VERSION has no SLSA provenance attestation on npm (got '$predicate')"
+            exit 1
+          fi
+      # Any provenance is not enough: it must name this repo, this workflow, this tag
+      # and this commit, so the release evidence says who built the package.
+      - name: Provenance names this repo, workflow, tag and commit
+        env:
+          VERSION: ${{ steps.tarball.outputs.version }}
+        run: |
+          scripts/release/wait-for.sh 300 scripts/release/provenance-check.sh \
+            "$PACKAGE" "$VERSION" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" .github/workflows/release.yml "$GITHUB_REF" "$GITHUB_SHA"
+          echo "provenance: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY .github/workflows/release.yml $GITHUB_REF $GITHUB_SHA"
+
+  # Runs only once npm shows our bytes: the registry checks npm for the version
+  # and its mcpName before it accepts the entry.
+  publish-registry:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # OIDC token for mcp-publisher login github-oidc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/release
+            server.json
+          sparse-checkout-cone-mode: false
+      - name: server.json matches the tag
+        run: |
+          found="$(jq -r '[.name, .version, (.packages | length), .packages[0].registryType, .packages[0].identifier, .packages[0].version, .repository.id] | map(. // "" | tostring) | join(" ")' server.json)"
+          want="$SERVER_NAME ${GITHUB_REF_NAME#v} 1 npm $PACKAGE ${GITHUB_REF_NAME#v} $REPOSITORY_ID"
+          if [ "$found" != "$want" ]; then
+            echo "::error::server.json has [$found], expected [$want]"
+            exit 1
+          fi
+      - name: Already in the registry?
+        id: existing
+        run: |
+          state="$(scripts/release/registry-state.sh "$SERVER_NAME" "${GITHUB_REF_NAME#v}" "$PACKAGE" "$REPOSITORY_ID")"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+      - name: Install cosign
+        if: steps.existing.outputs.state == 'absent'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and verify mcp-publisher
+        if: steps.existing.outputs.state == 'absent'
+        run: |
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$RUNNER_TEMP/$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/$MCP_PUBLISHER_VERSION" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$RUNNER_TEMP/$archive"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" mcp-publisher
+      - name: Publish to the MCP Registry
+        if: steps.existing.outputs.state == 'absent'
+        run: |
+          "$RUNNER_TEMP/mcp-publisher" login github-oidc
+          "$RUNNER_TEMP/mcp-publisher" publish
+      - name: Registry shows this version
+        run: scripts/release/wait-for.sh 300 scripts/release/registry-state.sh "$SERVER_NAME" "${GITHUB_REF_NAME#v}" "$PACKAGE" "$REPOSITORY_ID"
+
+  github-release:
+    needs: publish-registry
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # Runs only after npm and the registry both show this version.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/release
+          sparse-checkout-cone-mode: false
+      # A re-run must not fail because an earlier attempt created the release but
+      # lost the response. Only a 404 allows a create; a lookup error fails the job.
+      - name: Already released?
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state="$(scripts/release/github-release-state.sh "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME")"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub Release
+        if: steps.existing.outputs.state == 'absent'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
