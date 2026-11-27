@@ -6,7 +6,8 @@
  *   TRUSTMODEL_BASE_URL — API base URL (default: https://api.trustmodel.ai)
  */
 
-const BASE_URL = process.env.TRUSTMODEL_BASE_URL ?? "https://api.trustmodel.ai";
+const DEFAULT_BASE_URL = "https://api.trustmodel.ai";
+const BASE_URL = process.env.TRUSTMODEL_BASE_URL ?? DEFAULT_BASE_URL;
 
 function getApiKey(): string {
   const key = process.env.TRUSTMODEL_API_KEY;
@@ -427,13 +428,65 @@ export interface GuardrailsCheckResponse {
   latency_ms?: number;
 }
 
-export async function postGuardrailsCheck(
-  body: GuardrailsCheckBody
-): Promise<GuardrailsCheckResponse> {
-  const res = await fetch(`${BASE_URL}/sdk/v1/guardrails/check`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify(body),
-  });
-  return handleResponse(res) as Promise<GuardrailsCheckResponse>;
+/**
+ * TRUS-2550. A guardrails request that cannot be built: a missing or unusable
+ * API key, an unusable base URL, or a body that cannot be serialized. It fails
+ * on every call and nothing is sent, so it is never an outage and never an
+ * allow, whatever TRUSTMODEL_GUARDRAIL_FAIL_MODE says. `stage` is fixed text:
+ * it never repeats the key, the URL or the input.
+ */
+export class GuardrailsRequestBuildError extends Error {
+  constructor(readonly stage: string) {
+    super(`Guardrails request could not be built: ${stage}`);
+    this.name = "GuardrailsRequestBuildError";
+  }
+}
+
+/**
+ * Build the guardrails check request without sending it (TRUS-2550), so every
+ * configuration failure surfaces before any I/O, outside the fail-open path.
+ * Reads the environment on each call, unlike the module-level BASE_URL, so the
+ * checks see the configuration actually in force.
+ */
+export function buildGuardrailsCheckRequest(body: GuardrailsCheckBody): {
+  url: string;
+  init: RequestInit;
+} {
+  const key = process.env.TRUSTMODEL_API_KEY;
+  if (!key) throw new GuardrailsRequestBuildError("TRUSTMODEL_API_KEY is not set");
+
+  let url: URL;
+  try {
+    url = new URL(`${process.env.TRUSTMODEL_BASE_URL ?? DEFAULT_BASE_URL}/sdk/v1/guardrails/check`);
+  } catch {
+    throw new GuardrailsRequestBuildError("TRUSTMODEL_BASE_URL is not an absolute URL");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new GuardrailsRequestBuildError("TRUSTMODEL_BASE_URL must use https or http");
+  }
+  // fetch() refuses userinfo before any I/O, and its error repeats the URL,
+  // password included.
+  if (url.username || url.password) {
+    throw new GuardrailsRequestBuildError("TRUSTMODEL_BASE_URL must not contain credentials");
+  }
+
+  const requestHeaders = {
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  try {
+    // The validation fetch() would apply. Its error repeats the header value.
+    new Headers(requestHeaders);
+  } catch {
+    throw new GuardrailsRequestBuildError("TRUSTMODEL_API_KEY is not a valid header value");
+  }
+
+  let payload: string;
+  try {
+    payload = JSON.stringify(body);
+  } catch {
+    throw new GuardrailsRequestBuildError("request body is not JSON-serializable");
+  }
+  return { url: url.href, init: { method: "POST", headers: requestHeaders, body: payload } };
 }

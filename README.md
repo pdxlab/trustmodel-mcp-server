@@ -88,7 +88,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `TRUSTMODEL_PROFILE` | No | `default` | Tool profile. `default` exposes only the daily-driver tools; `security` / `advanced` / `all` expose every tool. See **Tool profiles**. |
 | `TRUSTMODEL_ADVANCED_TOOLS` | No | `false` | Set `true` to expose all tools regardless of `TRUSTMODEL_PROFILE`. |
 | `TRUSTMODEL_AGT_DISCOVERY_ENABLED` | No | `false` | Enables the filesystem-touching Shadow Discovery tools (`trustmodel_shadow_discovery_*`). When unset, those tools return a skip report. (Only relevant when the advanced profile is on.) |
-| `TRUSTMODEL_GUARDRAIL_FAIL_MODE` | No | `fail_closed` | Transport-failure behavior for `trustmodel_guardrails_check`. Set `fail_open` only by explicit policy decision. |
+| `TRUSTMODEL_GUARDRAIL_FAIL_MODE` | No | `fail_closed` | What `trustmodel_guardrails_check` does when TrustModel is unavailable. Set `fail_open` only by explicit policy decision. See [the tool's failure table](#trustmodel_guardrails_check). |
+| `TRUSTMODEL_GUARDRAIL_TIMEOUT_MS` | No | `10000` | How long `trustmodel_guardrails_check` waits for TrustModel, in milliseconds (1–120000). A timeout counts as TrustModel being unavailable. Any other value is a configuration error, and the check blocks. |
 
 ## Tool profiles
 
@@ -254,10 +255,26 @@ When the run was created with `frameworks`, the result text appends a per-framew
 
 Evaluate a proposed agent action against the organization's cloud policy before
 execution. The result includes an explicit `allowed` boolean. Only the exact
-decision `allow` sets it to `true`; deny, redact, unknown values, and transport
-failures block in the default fail-closed mode. Explicit fail-open applies only
-to failures where no HTTP response was received. HTTP refusals from TrustModel
-always block, and their evidence reports only the response status code.
+decision `allow` sets it to `true`; deny, redact and unknown values always block.
+
+When the check can't get a decision, `TRUSTMODEL_GUARDRAIL_FAIL_MODE` decides only
+the rows marked "fail mode". It is the same rule as the TrustModel Python and Node
+SDKs.
+
+| What happened | `fail_closed` (default) | `fail_open` |
+|---|---|---|
+| No `TRUSTMODEL_API_KEY`; `TRUSTMODEL_BASE_URL` not an absolute `https`/`http` URL or contains credentials; unusable `TRUSTMODEL_GUARDRAIL_TIMEOUT_MS`. Nothing is sent | blocks (`guardrail_configuration_error`) | blocks (`guardrail_configuration_error`) |
+| TrustModel unreachable: connection refused, reset or aborted, unreachable host or network, temporary DNS failure (`EAI_AGAIN`), or no answer within the timeout | blocks | **allows** (fail mode) |
+| TrustModel answered 5xx | blocks (`guardrail_http_refusal`) | **allows** (fail mode) |
+| TrustModel answered 2xx with a body that can't be read or isn't JSON | blocks | **allows** (fail mode) |
+| Host name doesn't resolve (`ENOTFOUND`), TLS failure, or any other error without evidence of an outage | blocks | blocks (`guardrail_transport_failure_not_an_outage`) |
+| TrustModel answered 4xx or 429, or 2xx JSON that isn't an object | blocks | blocks |
+
+A fail-open allow carries `reason: "guardrail_transport_failure_fail_open"` and
+`evidence.fail_open: true`. Alert on either, since no policy made that decision and
+TrustModel has no record of it. Results never include the server's response body,
+the request URL or an error message, only the HTTP status or an error code such as
+`ECONNREFUSED`.
 
 **Inputs:** `agent_id` and `action_type` are required. `action_payload`,
 `subject_id`, and `policy_name` are optional.
