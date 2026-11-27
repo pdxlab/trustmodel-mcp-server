@@ -6,10 +6,17 @@ process.env.TRUSTMODEL_GUARDRAIL_FAIL_MODE = "fail_closed";
 
 let nextDecision = "allow";
 let transportFailure = false;
+// TRUS-2550: fail-open needs outage evidence, so the stub throws the way real
+// fetch does: a TypeError whose cause carries the system error code.
+let transportCode = "ECONNREFUSED";
 let httpRefusalStatus = null;
 const calls = [];
 globalThis.fetch = async (url, init = {}) => {
-  if (transportFailure) throw new Error("sensitive transport detail");
+  if (transportFailure) {
+    throw new TypeError("sensitive transport detail", {
+      cause: transportCode ? { code: transportCode } : undefined,
+    });
+  }
   calls.push({ url: String(url), init });
   if (httpRefusalStatus !== null) {
     return {
@@ -24,22 +31,23 @@ globalThis.fetch = async (url, init = {}) => {
       },
     };
   }
+  const decision = {
+    decision: nextDecision,
+    policy_id: "p-1",
+    reason: "stub",
+    trust_score: 850,
+    evidence: {},
+    latency_ms: 3,
+  };
   return {
     ok: true,
     status: 200,
     statusText: "OK",
     async json() {
-      return {
-        decision: nextDecision,
-        policy_id: "p-1",
-        reason: "stub",
-        trust_score: 850,
-        evidence: {},
-        latency_ms: 3,
-      };
+      return decision;
     },
     async text() {
-      return "{}";
+      return JSON.stringify(decision);
     },
   };
 };
@@ -91,8 +99,17 @@ check(
 
 process.env.TRUSTMODEL_GUARDRAIL_FAIL_MODE = "fail_open";
 result = await handleGuardrails({ agent_id: "agent-one", action_type: "test" });
-check("explicit fail-open authorizes transport failure", result.allowed === true);
+check("explicit fail-open authorizes an outage", result.allowed === true);
 check("fail-open still returns canonical allow", result.decision === "allow");
+
+transportCode = undefined;
+result = await handleGuardrails({ agent_id: "agent-one", action_type: "test" });
+check("fail-open does not authorize a failure without outage evidence", result.allowed === false);
+check(
+  "no-evidence failure details are not exposed",
+  !JSON.stringify(result).includes("sensitive transport detail"),
+);
+transportCode = "ECONNREFUSED";
 
 transportFailure = false;
 httpRefusalStatus = 403;
